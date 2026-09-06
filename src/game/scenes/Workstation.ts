@@ -70,12 +70,15 @@ export class Workstation extends Scene {
     private boosterActions?: Record<BoosterId, ActionView>;
     private boosterFeedbackText?: GameObjects.Text;
     private bathroomInProgress = false;
+    private resultsStarted=false;
 
     constructor () { super('Workstation'); }
 
     create () {
         this.cleanupWorkday();
+        this.input.enabled=true;this.input.resetPointers();this.input.keyboard?.resetKeys();
         this.consequenceFeedback.length=0;
+        this.resultsStarted=false;
         const profile=import.meta.env.VITE_PACING_PROFILE==='developer'?DEVELOPER_PACING_PROFILE:NORMAL_PACING_PROFILE;
         this.session=new WorkdaySession(profile,20260906,record=>this.showConsequenceFeedback(record));
         this.workday=this.session.workday;this.coding=this.session.coding;this.taskQueue=this.session.taskQueue;this.playerNeeds=this.session.playerNeeds;this.boosters=this.session.boosters;this.interruptions=this.session.interruptions;this.scheduler=this.session.scheduler;this.consequenceQueue=this.session.consequenceQueue;this.disruptions=this.session.disruptions;this.effectEngine=this.session.effectEngine;
@@ -122,6 +125,7 @@ export class Workstation extends Scene {
         }
         this.synchronizeCodingAvailability();
         if (!this.coding.snapshot.isAvailable) this.clearHeldCodingSources();
+        this.enterResultsIfComplete();
     }
 
     private buildBackdrop () {
@@ -276,7 +280,7 @@ export class Workstation extends Scene {
 
     private addTaskDecisionChoice(overlay:GameObjects.Container,choice:TaskDecisionChoiceDefinition,x:number,y:number):void{const background=this.add.rectangle(x,y,640,126,COLORS.surface,1).setOrigin(0).setStrokeStyle(1,COLORS.blue).setInteractive({useHandCursor:true});background.once(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.resolveTaskChoice(choice.id));overlay.add([background,this.add.text(x+18,y+15,choice.label,{...textStyle,fontSize:15,fontStyle:'bold'}),this.add.text(x+622,y+16,`${choice.gameMinutes} MIN`,{...mutedStyle,color:'#8ac5ff',fontStyle:'bold'}).setOrigin(1,0),this.add.text(x+18,y+45,choice.description,{...mutedStyle,wordWrap:{width:590}}),this.add.text(x+18,y+88,[`Clock +${choice.gameMinutes}m`,...choice.effects.map(effect=>this.describeEffect(effect))].join('  ·  '),{...mutedStyle,color:'#cbd5e1',wordWrap:{width:600}})]);}
 
-    private resolveTaskChoice(choiceId:string):void{const choice=this.taskQueue.resolvePendingDecision(choiceId);if(!choice)return;this.workday.spendGameMinutes(choice.gameMinutes);this.effectEngine.execute(choice.effects,`task-decision:${choiceId}`);this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);this.workday.resume(TASK_DECISION_PAUSE_REASON);this.decisionOverlay?.destroy(true);this.decisionOverlay=undefined;this.cancelHeldCodingForDecision();this.synchronizeWorld();this.renderTaskQueue(this.taskQueue.snapshot);}
+    private resolveTaskChoice(choiceId:string):void{const choice=this.taskQueue.resolvePendingDecision(choiceId);if(!choice)return;this.workday.spendGameMinutes(choice.gameMinutes);this.effectEngine.execute(choice.effects,`task-decision:${choiceId}`);this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);this.workday.resume(TASK_DECISION_PAUSE_REASON);this.decisionOverlay?.destroy(true);this.decisionOverlay=undefined;this.cancelHeldCodingForDecision();this.synchronizeWorld();this.renderTaskQueue(this.taskQueue.snapshot);this.enterResultsIfComplete();}
 
     private addDecisionChoice (overlay: GameObjects.Container, choice: InterruptionChoiceDefinition, x: number, y: number, disabled: boolean,height=126): void {
         const compact=height<100;const background = this.add.rectangle(x, y, 640, height, disabled ? COLORS.surfaceMuted : COLORS.surface, 1).setOrigin(0).setStrokeStyle(1, disabled ? COLORS.disabled : COLORS.blue);
@@ -312,6 +316,7 @@ export class Workstation extends Scene {
         this.workday.resume(DECISION_PAUSE_REASON);
         this.synchronizeCodingAvailability();
         if (!this.workday.snapshot.isPaused) this.synchronizeWorld();
+        this.enterResultsIfComplete();
     }
 
     private postponeInterruption (id: string): void {
@@ -660,4 +665,5 @@ export class Workstation extends Scene {
         this.events.off(Scenes.Events.SHUTDOWN, this.cleanupWorkday, this);
         this.events.off(Scenes.Events.DESTROY, this.cleanupWorkday, this);
     }
+    private enterResultsIfComplete():void{if(this.resultsStarted||!this.workday.snapshot.isDayComplete)return;const result=this.session.finalize();if(!result)return;this.resultsStarted=true;this.advancesWorkday=false;this.cancelHeldCodingForDecision();this.input.enabled=false;this.scene.start('Results',{result});}
 }

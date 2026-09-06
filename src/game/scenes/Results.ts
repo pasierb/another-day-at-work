@@ -1,0 +1,14 @@
+import {GameObjects,Input,Scene,Scenes} from 'phaser';
+import type {EvaluatedResult} from '../domain/EndOfDayResults';
+import {COLORS,TYPE} from '../ui/theme';
+
+export class Results extends Scene{
+ private result!:EvaluatedResult;private restarting=false;private restart?:GameObjects.Rectangle;
+ constructor(){super('Results');}
+ init(data:{result:EvaluatedResult}):void{if(!data?.result)throw new TypeError('Results requires an evaluated result.');this.result=data.result;this.restarting=false;}
+ create():void{const {width,height}=this.cameras.main;this.cameras.main.setBackgroundColor(COLORS.backdrop);this.add.rectangle(width/2,height/2,width,height,COLORS.backdrop);this.add.text(width/2,34,'END OF DAY',{fontFamily:TYPE.family,fontSize:15,color:'#8fdbca',fontStyle:'bold'}).setOrigin(.5,0);this.add.text(width/2,62,this.result.ending.title.toUpperCase(),{fontFamily:TYPE.family,fontSize:34,color:'#ffffff',fontStyle:'bold'}).setOrigin(.5,0);this.add.text(width/2,108,this.result.ending.narrative,{fontFamily:TYPE.family,fontSize:14,color:'#aab7c8',align:'center',wordWrap:{width:860}}).setOrigin(.5,0);
+ this.add.text(72,166,`SCORE  ${this.result.total} / ${this.result.maximumTotal}`,{fontFamily:TYPE.family,fontSize:27,color:'#8ac5ff',fontStyle:'bold'});const left=this.result.scoreLines.slice(0,6),right=this.result.scoreLines.slice(6);const render=(items:typeof left,x:number)=>items.forEach((line,index)=>{const y=218+index*48;this.add.text(x,y,line.label.toUpperCase(),{fontFamily:TYPE.family,fontSize:12,color:'#d9e2ec',fontStyle:'bold'});this.add.text(x+390,y,`${line.contribution>=0?'+':''}${line.contribution}`,{fontFamily:TYPE.family,fontSize:14,color:line.contribution<0?'#f58a9d':'#8fdbca',fontStyle:'bold'}).setOrigin(1,0);this.add.text(x,y+20,line.evidence,{fontFamily:TYPE.family,fontSize:10,color:'#7f8da3'});});render(left,72);render(right,674);
+ const e=this.result.evidence;this.add.text(72,524,`WORK ${e.completedTaskIds.length}/5  ·  INCIDENTS ${e.resolvedIncidentIds.length}  ·  COFFEE ${e.boosterCounts.coffee}  ·  COKE ZERO ${e.boosterCounts.cokeZero}`,{fontFamily:TYPE.family,fontSize:13,color:'#aab7c8'});
+ this.restart=this.add.rectangle(width/2,630,330,54,COLORS.blue).setStrokeStyle(2,0x8ac5ff).setInteractive({useHandCursor:true});this.add.text(width/2,630,'START A FRESH DAY',{fontFamily:TYPE.family,fontSize:16,color:'#ffffff',fontStyle:'bold'}).setOrigin(.5);this.restart.once(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.restartRun());this.input.keyboard?.once('keydown-ENTER',()=>this.restartRun());this.events.once(Scenes.Events.SHUTDOWN,()=>this.input.keyboard?.removeAllListeners());}
+ private restartRun():void{if(this.restarting)return;this.restarting=true;this.restart?.disableInteractive();this.input.resetPointers();this.input.keyboard?.resetKeys();this.scene.start('Workstation');}
+}
