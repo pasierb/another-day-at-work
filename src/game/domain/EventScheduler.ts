@@ -1,4 +1,6 @@
-import { evaluateDebtModifier,validateModifier } from './effects';
+import { evaluateDebtModifier,evaluateSelectionWeight,validateModifier,type SelectionWeightModifier } from './effects';
+import { matchesEligibility,type EligibilityPredicate,type InterruptionRunContext } from './interruptions';
+import { DEFAULT_DAY_STATE_CONFIG } from './DayState';
 export interface RandomSource { next(): number; reset(): void }
 
 export class SeededRandom implements RandomSource {
@@ -18,7 +20,7 @@ export class SeededRandom implements RandomSource {
 }
 
 export interface EventSchedulerConfig { readonly minimumSpawnIntervalMs: number; readonly maximumSpawnIntervalMs: number; readonly activeLimit: number; readonly endGameMs: number }
-export interface SchedulerDefinition { readonly id:string; readonly baseWeight?:number; readonly debtWeightModifier?:import('./effects').TechnicalDebtModifier }
+export interface SchedulerDefinition { readonly id:string; readonly baseWeight?:number; readonly debtWeightModifier?:import('./effects').TechnicalDebtModifier;readonly selectionWeightModifier?:SelectionWeightModifier;readonly eligibility?:EligibilityPredicate }
 export interface ScheduledCandidate { readonly definitionId: string; readonly dueGameMs: number; readonly sequence: number }
 export interface SchedulerSnapshot { readonly nextSpawnGameMs: number | null; readonly pending: readonly ScheduledCandidate[]; readonly activeIds: readonly string[]; readonly pendingCount: number }
 
@@ -34,11 +36,11 @@ export class EventScheduler {
         this.random = random ?? new SeededRandom(seed); this.nextSpawnGameMs = this.drawInterval(0);
     }
     get snapshot (): SchedulerSnapshot { return Object.freeze({ nextSpawnGameMs:this.nextSpawnGameMs,pending:Object.freeze(this.pending.map(i=>Object.freeze({...i}))),activeIds:Object.freeze([...this.activeIds]),pendingCount:this.pending.length }); }
-    synchronize (gameMs: number, activate: (candidate: ScheduledCandidate) => boolean, technicalDebt=0): readonly ScheduledCandidate[] {
+    synchronize (gameMs: number, activate: (candidate: ScheduledCandidate) => boolean, contextOrDebt:InterruptionRunContext|number=0): readonly ScheduledCandidate[] {
         if (!Number.isFinite(gameMs) || gameMs < 0) throw new RangeError('Game time must be finite and non-negative.'); const activated: ScheduledCandidate[]=[];
         while (this.nextSpawnGameMs !== null && this.nextSpawnGameMs <= gameMs && this.nextSpawnGameMs < this.config.endGameMs) {
-            const available=this.definitions.filter(item=>!this.createdIds.has(item.id));
-            const picked=this.pickWeighted(available,technicalDebt);
+            const context=typeof contextOrDebt==='number'?legacyContext(contextOrDebt):contextOrDebt;const available=this.definitions.filter(item=>!this.createdIds.has(item.id)&&matchesEligibility(item.eligibility,context));
+            const picked=this.pickWeighted(available,context);
             if (picked) { this.createdIds.add(picked.id); this.pending.push(Object.freeze({definitionId:picked.id,dueGameMs:this.nextSpawnGameMs,sequence:this.sequence++})); }
             this.nextSpawnGameMs=this.drawInterval(this.nextSpawnGameMs);
         }
@@ -52,11 +54,11 @@ export class EventScheduler {
     reset ():void{this.random.reset();this.pending.length=0;this.activeIds.clear();this.createdIds.clear();this.sequence=0;this.nextSpawnGameMs=this.drawInterval(0);}
     private drain(activate:(candidate:ScheduledCandidate)=>boolean,activated:ScheduledCandidate[]):void{this.pending.sort((a,b)=>a.dueGameMs-b.dueGameMs||a.sequence-b.sequence);while(this.activeIds.size<this.config.activeLimit&&this.pending.length){const candidate=this.pending[0]!;if(!activate(candidate))break;this.pending.shift();this.activeIds.add(candidate.definitionId);activated.push(candidate);}}
     private drawInterval(from:number):number|null{if(from>=this.config.endGameMs)return null;const span=this.config.maximumSpawnIntervalMs-this.config.minimumSpawnIntervalMs;const next=from+this.config.minimumSpawnIntervalMs+Math.floor(this.random.next()*(span+1));return next>=this.config.endGameMs?null:next;}
-    private pickWeighted(available:readonly SchedulerDefinition[],technicalDebt:number):SchedulerDefinition|undefined{
-        if(!Number.isFinite(technicalDebt)||technicalDebt<0)throw new RangeError('Technical Debt must be finite and non-negative.');
-        const evaluated=available.map(item=>({item,weight:evaluateWeight(item,technicalDebt)}));const total=evaluated.reduce((sum,x)=>sum+x.weight,0);if(total<=0)return undefined;
+    private pickWeighted(available:readonly SchedulerDefinition[],context:InterruptionRunContext):SchedulerDefinition|undefined{
+        const evaluated=available.map(item=>({item,weight:evaluateWeight(item,context)}));const total=evaluated.reduce((sum,x)=>sum+x.weight,0);if(total<=0)return undefined;
         let draw=this.random.next()*total;for(const entry of evaluated){if(draw<entry.weight)return entry.item;draw-=entry.weight;}return evaluated[evaluated.length-1]?.item;
     }
 }
 
-function evaluateWeight(item:SchedulerDefinition,debt:number):number{const base=item.baseWeight??1;if(!Number.isFinite(base)||base<0)throw new RangeError(`Invalid base weight for ${item.id}.`);if(item.debtWeightModifier)validateModifier(item.debtWeightModifier,item.id);return Math.max(0,evaluateDebtModifier(base,debt,item.debtWeightModifier));}
+const legacyContext=(technicalDebt:number):InterruptionRunContext=>Object.freeze({selectedTaskId:null,completedTaskIds:Object.freeze([]),resolvedEventIds:Object.freeze([]),resolvedChoices:Object.freeze([]),resources:Object.freeze({...DEFAULT_DAY_STATE_CONFIG.initialResources,technicalDebt})});
+export function evaluateWeight(item:SchedulerDefinition,context:InterruptionRunContext):number{const base=item.baseWeight??1;if(!Number.isFinite(base)||base<0)throw new RangeError(`Invalid base weight for ${item.id}.`);if(item.debtWeightModifier)validateModifier(item.debtWeightModifier,item.id);const debtAdjusted=evaluateDebtModifier(base,context.resources.technicalDebt,item.debtWeightModifier);return evaluateSelectionWeight(debtAdjusted,context.resources,item.selectionWeightModifier);}

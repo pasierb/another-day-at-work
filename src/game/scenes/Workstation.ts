@@ -5,7 +5,7 @@ import { ENGINEERING_TASKS } from '../content/engineeringTasks';
 import { DayState, type DayStateSnapshot, type ResourceKey } from '../domain/DayState';
 import { PlayerNeeds, type NeedId, type NeedTransition, type PlayerNeedsSnapshot } from '../domain/PlayerNeeds';
 import { BoosterSession, type BoosterId, type BoosterSnapshot } from '../domain/BoosterSession';
-import { SAMPLE_INTERRUPTIONS } from '../content/sampleInterruptions';
+import { INTERRUPTION_CATALOG } from '../content/poTeamInterruptions';
 import { EventScheduler, type ScheduledCandidate } from '../domain/EventScheduler';
 import { ConsequenceQueue } from '../domain/ConsequenceQueue';
 import { EffectEngine } from '../domain/EffectEngine';
@@ -77,8 +77,8 @@ export class Workstation extends Scene {
         this.taskQueue = new EngineeringTaskQueue(ENGINEERING_TASKS);
         this.playerNeeds = new PlayerNeeds({}, this.workday.snapshot.elapsedGameMs);
         this.boosters = new BoosterSession({}, 20260908);
-        this.interruptions = new InterruptionSession(SAMPLE_INTERRUPTIONS, this.workday.snapshot.elapsedGameMs);
-        this.scheduler = new EventScheduler(SAMPLE_INTERRUPTIONS.map(item => ({id:item.id,baseWeight:'baseWeight' in item?item.baseWeight:1,debtWeightModifier:'debtWeightModifier' in item?item.debtWeightModifier:undefined})), {
+        this.interruptions = new InterruptionSession(INTERRUPTION_CATALOG, this.workday.snapshot.elapsedGameMs);
+        this.scheduler = new EventScheduler(INTERRUPTION_CATALOG, {
             minimumSpawnIntervalMs: 20 * 60_000, maximumSpawnIntervalMs: 35 * 60_000,
             activeLimit: 3, endGameMs: WORKDAY_DURATION_MS
         }, 20260906);
@@ -330,7 +330,8 @@ export class Workstation extends Scene {
     private synchronizeInterruptions (): void {
         const day = this.workday.snapshot;
         if (day.isPaused) return;
-        this.scheduler.synchronize(day.elapsedGameMs,candidate=>this.activateCandidate(candidate),day.resources.technicalDebt);
+        const tasks=this.taskQueue.snapshot;const history=this.interruptions.snapshot;
+        this.scheduler.synchronize(day.elapsedGameMs,candidate=>this.activateCandidate(candidate),{selectedTaskId:tasks.selectedTaskId,completedTaskIds:tasks.completedTaskIds,resolvedEventIds:history.resolvedIds,resolvedChoices:history.resolvedOutcomes,resources:day.resources});
         let batch = this.interruptions.setCurrentGameMs(day.elapsedGameMs);
         let guard = 0;
         while (batch.length > 0) {
@@ -597,6 +598,7 @@ export class Workstation extends Scene {
         this.unsubscribeNeeds?.();
         this.unsubscribeNeeds = undefined;
         this.scheduler?.reset();
+        this.interruptions?.reset();
         this.effectEngine?.reset();
         this.consequenceFeedback.length=0;
         this.consequenceFeedbackText=undefined;
