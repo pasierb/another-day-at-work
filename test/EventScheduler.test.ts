@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { EventScheduler, SeededRandom, type RandomSource } from '../src/game/domain/EventScheduler.ts';
+const config = { minimumSpawnIntervalMs: 10, maximumSpawnIntervalMs: 10, activeLimit: 2, endGameMs: 100 } as const;
+
+describe('SeededRandom', () => {
+    it('repeats after reset and separates seeds', () => { const a=new SeededRandom(7);const first=[a.next(),a.next(),a.next()];a.reset();assert.deepEqual([a.next(),a.next(),a.next()],first);const b=new SeededRandom(8);assert.notDeepEqual([b.next(),b.next(),b.next()],first); });
+});
+describe('EventScheduler', () => {
+    const run=(updates:number[])=>{const scheduler=new EventScheduler(['a','b','c'],config,42);const output:string[]=[];for(const time of updates)scheduler.synchronize(time,c=>{output.push(`${c.definitionId}@${c.dueGameMs}`);return true;});return output;};
+    it('is frame-partition independent and stable for a seed',()=>assert.deepEqual(run([30]),run([10,20,30])));
+    it('resets pending, active, deadlines, and random sequence',()=>{const s=new EventScheduler(['a','b','c'],config,42);const first:string[]=[];s.synchronize(20,c=>{first.push(c.definitionId);return true;});s.reset();const second:string[]=[];s.synchronize(20,c=>{second.push(c.definitionId);return true;});assert.deepEqual(second,first);});
+    it('retains FIFO at capacity, drains after resolution, and does not redraw queued work',()=>{let draws=0;const random:RandomSource={next:()=>{draws++;return 0;},reset:()=>{draws=0;}};const s=new EventScheduler(['a','b','c'],{...config,activeLimit:1},1,random);s.synchronize(30,()=>true);const after=draws;assert.equal(s.snapshot.pendingCount,2);assert.deepEqual(s.resolved('a',()=>true).map(x=>x.definitionId),['b']);assert.equal(draws,after);});
+    it('orders equal-deadline pending candidates by stable creation sequence',()=>{const s=new EventScheduler(['a','b','c'],{...config,activeLimit:1},1);s.enqueueFollowUp('b',5,()=>true);s.enqueueFollowUp('c',5,()=>true);assert.deepEqual(s.resolved('b',()=>true).map(x=>x.definitionId),['c']);});
+    it('suppresses transitions at end of day without wall-clock input',()=>{const s=new EventScheduler(['a'],config,1);const output:string[]=[];s.synchronize(1000,c=>{output.push(c.definitionId);return true;});assert.ok(output.length<=1);assert.equal(s.snapshot.nextSpawnGameMs,null);});
+    it('selects with debt-adjusted weights and preserves queued candidates after debt changes',()=>{const random:RandomSource={next:()=>.75,reset:()=>{}};const s=new EventScheduler([{id:'plain',baseWeight:1},{id:'risky',baseWeight:0,debtWeightModifier:{perDebtPoint:1,maximum:100}}],{...config,activeLimit:1},1,random);const picked=s.synchronize(10,()=>true,10);assert.equal(picked[0]?.definitionId,'risky');s.synchronize(20,()=>true,0);const queued=s.snapshot.pending[0];s.synchronize(30,()=>true,100);assert.deepEqual(s.snapshot.pending.find(x=>x.sequence===queued?.sequence),queued);});
+    it('keeps unmodified weights unchanged, replays, and handles zero total weight deterministically',()=>{const run=(debt:number)=>{const s=new EventScheduler([{id:'a',baseWeight:1},{id:'b',baseWeight:1}],config,42);const out:string[]=[];s.synchronize(20,c=>{out.push(c.definitionId);return true;},debt);return out;};assert.deepEqual(run(0),run(100));const zero=new EventScheduler([{id:'a',baseWeight:0}],config,1);assert.deepEqual(zero.synchronize(20,()=>true,50),[]);});
+});

@@ -92,6 +92,18 @@ export class DayState {
         this.notify();
     }
 
+    spendGameMinutes (gameMinutes: number): void {
+        if (!Number.isFinite(gameMinutes) || gameMinutes < 0) {
+            throw new RangeError('Action time must be finite and non-negative.');
+        }
+        if (gameMinutes === 0) return;
+        const durationMs = (this.config.endMinute - this.config.startMinute) * 60_000;
+        const next = Math.min(durationMs, this.elapsedGameMs + gameMinutes * 60_000);
+        if (next === this.elapsedGameMs) return;
+        this.elapsedGameMs = next;
+        this.notify();
+    }
+
     pause (reason: PauseReason): void {
         if (!reason || this.pauseReasons.has(reason)) return;
         this.pauseReasons.add(reason);

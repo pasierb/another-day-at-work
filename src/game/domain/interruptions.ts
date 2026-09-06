@@ -1,0 +1,52 @@
+import { validateEffects,validateModifier,type Effect } from './effects';
+export type { ConsequenceFeedback,DelayedEffect,Effect,FocusEffect,ImmediateEffect,ProbabilityEffect,ResourceEffect,TaskProgressEffect,TechnicalDebtModifier } from './effects';
+export const INTERRUPTION_CATEGORIES = ['product-owner', 'production', 'teammate'] as const;
+export type InterruptionCategory = typeof INTERRUPTION_CATEGORIES[number];
+export const INTERRUPTION_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const;
+export type InterruptionSeverity = typeof INTERRUPTION_SEVERITIES[number];
+export interface InterruptionChoiceDefinition { readonly id:string; readonly label:string; readonly description:string; readonly gameMinutes:number; readonly effects:readonly Effect[] }
+export interface EscalationStageDefinition { readonly delayGameMs:number; readonly copy:string; readonly severity:InterruptionSeverity; readonly effects:readonly Effect[]; readonly postponeGameMs:number; readonly followUpIds?:readonly string[] }
+export interface InterruptionDefinition { readonly id:string; readonly category:InterruptionCategory; readonly severity:InterruptionSeverity; readonly title:string; readonly copy:string; readonly choices:readonly InterruptionChoiceDefinition[]; readonly escalationStages?:readonly EscalationStageDefinition[]; readonly baseWeight?:number; readonly debtWeightModifier?:import('./effects').TechnicalDebtModifier }
+type Lifecycle='active'|'deciding'|'resolving';
+export interface ActiveInterruptionSnapshot extends InterruptionDefinition { readonly activationGameMs:number; readonly activationSequence:number; readonly ageGameMinutes:number; readonly status:Lifecycle; readonly stageIndex:number; readonly nextEscalationGameMs:number|null }
+export interface InterruptionSessionSnapshot { readonly active:readonly ActiveInterruptionSnapshot[]; readonly openInterruption:ActiveInterruptionSnapshot|null; readonly resolvedIds:readonly string[] }
+export interface PendingInterruptionResolution { readonly interruptionId:string; readonly choice:InterruptionChoiceDefinition }
+export interface EscalationTransition { readonly interruptionId:string; readonly stageIndex:number; readonly deadlineGameMs:number; readonly effects:readonly Effect[]; readonly followUpIds:readonly string[] }
+export type TransitionBatch=readonly EscalationTransition[];
+type ActiveRecord={readonly definition:InterruptionDefinition;readonly activationGameMs:number;readonly activationSequence:number;status:Lifecycle;stageIndex:number;nextEscalationGameMs:number|null};
+type Observer=(snapshot:InterruptionSessionSnapshot)=>void;
+const nonEmpty=(value:string)=>typeof value==='string'&&value.trim().length>0;
+const freezeEffects=(effects:readonly Effect[])=>Object.freeze(effects.map(effect=>Object.freeze({...effect})));
+
+export function validateInterruptionDefinitions(definitions:readonly InterruptionDefinition[]):readonly InterruptionDefinition[]{
+ const ids=new Set<string>();
+ for(const d of definitions){
+  if(!nonEmpty(d.id)||ids.has(d.id))throw new TypeError('Interruption IDs must be non-empty and unique.');ids.add(d.id);
+  if(!INTERRUPTION_CATEGORIES.includes(d.category)||!INTERRUPTION_SEVERITIES.includes(d.severity)||!nonEmpty(d.title)||!nonEmpty(d.copy))throw new TypeError(`Invalid interruption metadata for ${d.id}.`);
+  if(d.baseWeight!==undefined&&(!Number.isFinite(d.baseWeight)||d.baseWeight<0))throw new RangeError(`Interruption ${d.id} has invalid base weight.`);if(d.debtWeightModifier)validateModifier(d.debtWeightModifier,d.id);
+  if(!Array.isArray(d.choices)||d.choices.length<2)throw new TypeError(`Interruption ${d.id} requires at least two choices.`);const choiceIds=new Set<string>();
+  for(const c of d.choices){if(!nonEmpty(c.id)||choiceIds.has(c.id)||!nonEmpty(c.label)||!nonEmpty(c.description))throw new TypeError(`Interruption ${d.id} has an invalid choice.`);choiceIds.add(c.id);if(!Number.isFinite(c.gameMinutes)||c.gameMinutes<0)throw new RangeError(`Choice ${c.id} has invalid action time.`);validateEffects(c.effects,c.id);}
+  for(const stage of d.escalationStages??[]){if(!Number.isFinite(stage.delayGameMs)||stage.delayGameMs<=0||!Number.isFinite(stage.postponeGameMs)||stage.postponeGameMs<=0)throw new RangeError(`Interruption ${d.id} has invalid escalation timing.`);if(!nonEmpty(stage.copy)||!INTERRUPTION_SEVERITIES.includes(stage.severity))throw new TypeError(`Interruption ${d.id} has invalid escalation metadata.`);validateEffects(stage.effects,d.id);if(stage.followUpIds?.some(id=>!nonEmpty(id)||id===d.id))throw new TypeError(`Interruption ${d.id} has an invalid follow-up.`);}
+ }
+ for(const d of definitions)for(const stage of d.escalationStages??[])for(const id of stage.followUpIds??[])if(!ids.has(id))throw new TypeError(`Unknown follow-up ${id}.`);
+ const edges=new Map(definitions.map(d=>[d.id,new Set((d.escalationStages??[]).flatMap(stage=>stage.followUpIds??[]))]));const visiting=new Set<string>();const visited=new Set<string>();
+ const visit=(id:string):void=>{if(visiting.has(id))throw new TypeError('Interruption follow-up graph must be acyclic.');if(visited.has(id))return;visiting.add(id);for(const next of edges.get(id)??[])visit(next);visiting.delete(id);visited.add(id);};definitions.forEach(d=>visit(d.id));return definitions;
+}
+
+export class InterruptionSession{
+ private readonly definitions=new Map<string,InterruptionDefinition>();private readonly active=new Map<string,ActiveRecord>();private readonly resolvedIds:string[]=[];private openId:string|null=null;private currentGameMs:number;private nextActivationSequence=0;private readonly observers=new Set<Observer>();
+ constructor(definitions:readonly InterruptionDefinition[],currentGameMs=0,activateInitially=false){if(!Number.isFinite(currentGameMs)||currentGameMs<0)throw new RangeError('Activation time must be finite and non-negative.');validateInterruptionDefinitions(definitions);definitions.forEach(d=>this.definitions.set(d.id,d));this.currentGameMs=currentGameMs;if(activateInitially)definitions.forEach(d=>this.activate(d.id,currentGameMs));}
+ get snapshot():InterruptionSessionSnapshot{const active=Object.freeze([...this.active.values()].map(r=>this.snapshotRecord(r)));return Object.freeze({active,openInterruption:this.openId?active.find(i=>i.id===this.openId)??null:null,resolvedIds:Object.freeze([...this.resolvedIds])});}
+ activate(id:string,gameMs=this.currentGameMs,activationSequence=this.nextActivationSequence++):boolean{const definition=this.definitions.get(id);if(!definition||this.active.has(id)||this.resolvedIds.includes(id)||!Number.isFinite(gameMs)||gameMs<0)return false;const first=definition.escalationStages?.[0];this.active.set(id,{definition,activationGameMs:gameMs,activationSequence,status:'active',stageIndex:-1,nextEscalationGameMs:first?gameMs+first.delayGameMs:null});this.notify();return true;}
+ setCurrentGameMs(gameMs:number):TransitionBatch{if(!Number.isFinite(gameMs)||gameMs<0)throw new RangeError('Current game time must be finite and non-negative.');this.currentGameMs=gameMs;return this.advanceDue(gameMs);}
+ advanceDue(gameMs=this.currentGameMs):TransitionBatch{const result:EscalationTransition[]=[];let guard=0;while(true){const due=[...this.active.values()].filter(r=>r.status==='active'&&r.nextEscalationGameMs!==null&&r.nextEscalationGameMs<=gameMs).sort((a,b)=>a.nextEscalationGameMs!-b.nextEscalationGameMs!||a.activationSequence-b.activationSequence)[0];if(!due)break;if(++guard>1000)throw new Error('Escalation transition limit exceeded.');const transition=this.enterNextStage(due,due.nextEscalationGameMs!);if(transition)result.push(transition);}if(result.length)this.notify();return Object.freeze(result);}
+ postpone(id:string):boolean{const r=this.active.get(id);if(!r||r.status!=='active'||r.nextEscalationGameMs===null)return false;const stage=r.definition.escalationStages?.[Math.max(0,r.stageIndex)]??r.definition.escalationStages?.[0];if(!stage)return false;r.nextEscalationGameMs+=stage.postponeGameMs;this.notify();return true;}
+ ignore(id:string):TransitionBatch{const r=this.active.get(id);if(!r||r.status!=='active'||r.nextEscalationGameMs===null)return Object.freeze([]);const transition=this.enterNextStage(r,this.currentGameMs);this.notify();return Object.freeze(transition?[transition]:[]);}
+ open(id:string):boolean{if(this.openId)return false;const r=this.active.get(id);if(!r||r.status!=='active')return false;r.status='deciding';this.openId=id;this.notify();return true;}
+ beginResolution(choiceId:string):PendingInterruptionResolution|null{if(!this.openId)return null;const r=this.active.get(this.openId);const choice=r?.definition.choices.find(c=>c.id===choiceId);if(!r||r.status!=='deciding'||!choice)return null;r.status='resolving';this.notify();return Object.freeze({interruptionId:r.definition.id,choice});}
+ finalizeResolution(id:string):boolean{const r=this.active.get(id);if(!r||r.status!=='resolving'||this.openId!==id)return false;this.active.delete(id);this.resolvedIds.push(id);this.openId=null;this.notify();return true;}
+ subscribe(observer:Observer):()=>void{this.observers.add(observer);let active=true;return()=>{if(active){active=false;this.observers.delete(observer);}};}
+ private enterNextStage(r:ActiveRecord,deadline:number):EscalationTransition|null{const index=r.stageIndex+1;const stage=r.definition.escalationStages?.[index];if(!stage){r.nextEscalationGameMs=null;return null;}r.stageIndex=index;const next=r.definition.escalationStages?.[index+1];r.nextEscalationGameMs=next?deadline+next.delayGameMs:null;return Object.freeze({interruptionId:r.definition.id,stageIndex:index,deadlineGameMs:deadline,effects:freezeEffects(stage.effects),followUpIds:Object.freeze([...(stage.followUpIds??[])])});}
+ private snapshotRecord(r:ActiveRecord):ActiveInterruptionSnapshot{const stage=r.stageIndex>=0?r.definition.escalationStages?.[r.stageIndex]:undefined;return Object.freeze({...r.definition,copy:stage?.copy??r.definition.copy,severity:stage?.severity??r.definition.severity,choices:Object.freeze([...r.definition.choices]),escalationStages:r.definition.escalationStages?Object.freeze([...r.definition.escalationStages]):undefined,activationGameMs:r.activationGameMs,activationSequence:r.activationSequence,ageGameMinutes:Math.max(0,Math.floor((this.currentGameMs-r.activationGameMs)/60000)),status:r.status,stageIndex:r.stageIndex,nextEscalationGameMs:r.nextEscalationGameMs});}
+ private notify():void{const snapshot=this.snapshot;this.observers.forEach(o=>o(snapshot));}
+}

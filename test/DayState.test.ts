@@ -69,6 +69,35 @@ describe('DayState', () => {
         assert.equal(state.snapshot.elapsedGameMs, atEnd.elapsedGameMs);
     });
 
+    it('spends action time while paused and keeps the pause active', () => {
+        const state = new DayState();
+        state.pause('decision');
+        state.spendGameMinutes(25);
+        assert.equal(state.snapshot.elapsedGameMs, 25 * 60_000);
+        assert.equal(state.snapshot.clockMinute, 25);
+        assert.deepEqual(state.snapshot.pauseReasons, ['decision']);
+    });
+
+    it('clamps action time at day end and ignores zero or completed-day costs', () => {
+        const state = new DayState();
+        let notifications = 0;
+        state.subscribe(() => { notifications += 1; });
+        state.spendGameMinutes(0);
+        state.spendGameMinutes(500);
+        state.spendGameMinutes(10);
+        assert.deepEqual([state.snapshot.clockHour, state.snapshot.clockMinute], [17, 0]);
+        assert.equal(state.snapshot.dayProgress, 1);
+        assert.equal(notifications, 1);
+    });
+
+    it('rejects invalid action-time costs without changing time', () => {
+        const state = new DayState();
+        for (const cost of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+            assert.throws(() => state.spendGameMinutes(cost), RangeError);
+            assert.equal(state.snapshot.elapsedGameMs, 0);
+        }
+    });
+
     it('resets configured time, resources, and pause state deterministically', () => {
         const state = new DayState({ initialResources: { stamina: 25 }, initialPauseReasons: ['initial'] });
         state.resume('initial');

@@ -1,4 +1,4 @@
-import { GameObjects, Scene } from 'phaser';
+import { GameObjects, Input, Scene } from 'phaser';
 import type { Region } from './layout';
 import { COLORS, DEPTH, SPACE, TYPE } from './theme';
 
@@ -53,4 +53,48 @@ export function disabledAction(scene: Scene, parent: GameObjects.Container, x: n
     // Deliberately no setInteractive() or input listener: this control is only a placeholder.
     parent.add(root);
     return root;
+}
+
+export interface ActionView {
+    readonly root: GameObjects.Container;
+    readonly background: GameObjects.Rectangle;
+    setEnabled(enabled: boolean, detail?: string): void;
+    destroy(): void;
+}
+
+export function actionButton(scene: Scene, parent: GameObjects.Container, x: number, y: number, width: number,
+    label: string, detail: string, activate: () => void): ActionView {
+    const root = scene.add.container(x, y);
+    const background = scene.add.rectangle(0, 0, width, 42, COLORS.blue).setOrigin(0).setStrokeStyle(1, 0x8ac5ff);
+    const labelText = scene.add.text(width / 2, 12, label, { fontFamily: TYPE.family, fontSize: TYPE.body, color: COLORS.text, fontStyle: 'bold' }).setOrigin(0.5);
+    const detailText = scene.add.text(width / 2, 29, detail, { fontFamily: TYPE.family, fontSize: TYPE.small, color: COLORS.text }).setOrigin(0.5);
+    root.add([background, labelText, detailText]);
+    parent.add(root);
+    let enabled = false;
+    let armedPointer: number | undefined;
+    const down = (pointer: Input.Pointer) => {
+        if (!enabled || armedPointer !== undefined) return;
+        armedPointer = pointer.id;
+        activate();
+    };
+    const up = (pointer: Input.Pointer) => { if (armedPointer === pointer.id) armedPointer = undefined; };
+    background.on(Input.Events.GAMEOBJECT_POINTER_DOWN, down);
+    scene.input.on(Input.Events.POINTER_UP, up);
+    scene.input.on(Input.Events.POINTER_UP_OUTSIDE, up);
+    const setEnabled = (next: boolean, nextDetail = detail) => {
+        if (next === enabled) {
+            detailText.setText(nextDetail);
+            return;
+        }
+        enabled = next;
+        armedPointer = undefined;
+        background.disableInteractive();
+        if (enabled) background.setInteractive({ useHandCursor: true }).setFillStyle(COLORS.blue).setStrokeStyle(1, 0x8ac5ff);
+        else background.setFillStyle(COLORS.surfaceMuted).setStrokeStyle(1, COLORS.disabled);
+        root.setAlpha(enabled ? 1 : 0.62);
+        labelText.setColor(enabled ? COLORS.text : COLORS.textMuted);
+        detailText.setColor(enabled ? COLORS.text : COLORS.textMuted).setText(nextDetail);
+    };
+    setEnabled(true);
+    return { root, background, setEnabled, destroy: () => { background.off(Input.Events.GAMEOBJECT_POINTER_DOWN, down); scene.input.off(Input.Events.POINTER_UP, up); scene.input.off(Input.Events.POINTER_UP_OUTSIDE, up); root.destroy(true); } };
 }
