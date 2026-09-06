@@ -249,10 +249,9 @@ while (( iteration < max_iterations )); do
     "Finalize active OpenSpec change '$expected_change'." \
     'Use the openspec-archive-change workflow, including its inline openspec-sync-specs workflow.' \
     'Verify artifacts and tasks are complete, intelligently merge every delta spec into the main specs, validate the specs, and archive the change.' \
-    'Then review the complete diff and create exactly one Git commit containing the implementation, completed task artifacts, synchronized main specs, and archived change. Use a concise imperative commit message naming the chunk.' \
-    'Do not amend existing commits and do not leave tracked changes uncommitted.' \
+    'Then review the complete diff. Do not create a Git commit; the outer runner owns the commit after finalization.' \
     'This is unattended automation: do not ask questions and never skip validation, spec sync, or incomplete work. Return blocked instead.' \
-    'Your final response must match the supplied JSON schema. Use outcome finalized only after archive and commit both succeed; otherwise use blocked. Set change to the exact change name.')
+    'Your final response must match the supplied JSON schema. Use outcome finalized only after sync, validation, and archive succeed; otherwise use blocked. Set change to the exact change name.')
   run_codex "finalize:$expected_change" "$finalize_prompt"
   [[ "$CODEX_OUTCOME" == "finalized" || "$CODEX_OUTCOME" == "complete" ]] || \
     die "finalize phase ended with $CODEX_OUTCOME"
@@ -261,8 +260,11 @@ while (( iteration < max_iterations )); do
   read_active_changes ACTIVE_AFTER_FINALIZE
   (( ${#ACTIVE_AFTER_FINALIZE[@]} == 0 )) || die "finalize phase left an active OpenSpec change"
   is_archived "$expected_change" || die "archive for '$expected_change' was not found"
+  commit_subject=$(printf '%s' "$expected_change" | tr '-' ' ')
+  $GIT_BIN -C "$REPO_ROOT" add --all
+  $GIT_BIN -C "$REPO_ROOT" commit -m "Implement $commit_subject"
   head_after_finalize=$($GIT_BIN -C "$REPO_ROOT" rev-parse HEAD)
-  [[ "$head_after_finalize" != "$head_before_finalize" ]] || die "finalize phase did not create a commit"
+  [[ "$head_after_finalize" != "$head_before_finalize" ]] || die "outer runner did not create a commit"
   [[ -z "$($GIT_BIN -C "$REPO_ROOT" status --porcelain)" ]] || die "finalize phase left a dirty Git worktree"
   after_count=$(completed_count)
   (( after_count == before_count + 1 )) || die "completed chunk count did not advance by exactly one"
