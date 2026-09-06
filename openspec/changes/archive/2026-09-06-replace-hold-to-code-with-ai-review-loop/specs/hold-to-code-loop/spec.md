@@ -1,35 +1,16 @@
-# Hold to Code Loop Specification
+## REMOVED Requirements
 
-## Purpose
+### Requirement: Holding an available coding control performs work
+**Reason**: Continuous held input is replaced by discrete AI generation and change-review decisions that better represent contemporary software development.
 
-Provide the primary continuous coding interaction, including task progress, Focus momentum, Stamina cost, safe input handling, and synchronized laptop feedback.
+**Migration**: Start prompt or plan mode, wait for its simulated AI cycle, then approve or revise the proposed change batch.
 
-## Requirements
+### Requirement: Interrupted input cannot leave coding active
+**Reason**: Coding no longer depends on persistent pointer or keyboard hold state, so held-source cancellation is not part of the primary loop.
 
-### Requirement: A coding session exposes one deterministic current task
-The game SHALL perform coding against the task selected by the authoritative engineering task queue, SHALL expose that task's identifier, name, effort, bounded progress, and completion state, and SHALL expose no current task when the queue has no incomplete work.
+**Migration**: Use idempotent discrete actions and cancel active AI cycle state only when its task or run becomes invalid.
 
-#### Scenario: A fresh coding session begins
-- **WHEN** a coding session is connected to a fresh task queue
-- **THEN** it exposes the queue's selected task at zero progress with its configured identity and effort
-
-#### Scenario: The selected task changes
-- **WHEN** the queue selects a different incomplete task
-- **THEN** the coding state exposes that task and its retained progress without carrying progress from the previous task
-
-#### Scenario: The task reaches completion
-- **WHEN** a coding update supplies enough work to finish the selected task
-- **THEN** progress becomes exactly 100 percent and the task enters its completed state exactly once before the queue selects subsequent work
-
-#### Scenario: Updates continue after completion
-- **WHEN** further coding updates occur after one task completes and the queue selects subsequent work
-- **THEN** the completed task remains at 100 percent, produces no additional completion transition, and receives no further work
-
-#### Scenario: No incomplete task remains
-- **WHEN** the queue contains no incomplete task
-- **THEN** coding exposes no current task and cannot produce work
-
-
+## MODIFIED Requirements
 
 ### Requirement: Focus rewards attentive review
 The game SHALL expose bounded Focus as review effectiveness, SHALL use it with the selected coding mode to determine which risk and uncertainty signals are visible when a batch is first presented, and SHALL constrain all Focus changes to its configured bounds. Authoritative personal-need and interruption effects SHALL modify Focus without altering evidence or outcomes already frozen into an existing batch.
@@ -162,14 +143,11 @@ The game SHALL combine active run-scoped tooling disruptions into a bounded plan
 - **WHEN** authoritative game time is paused or the run is reset
 - **THEN** active disruptions do not expire during the pause and reset clears every disruption and its recovery state
 
+## RENAMED Requirements
 
-### Requirement: Interruptions can disrupt Focus explicitly
-The game SHALL support an explicit configured Focus reduction, constrain the resulting Focus to its existing bounds, and immediately expose the resulting multiplier to observers.
-
-#### Scenario: Resolving an interruption reduces Focus
-- **WHEN** an interruption choice applies a Focus reduction smaller than the current Focus
-- **THEN** Focus and its multiplier decrease by the declared bounded amount without changing task progress
-
-#### Scenario: A Focus reduction exceeds current Focus
-- **WHEN** an interruption applies a Focus reduction greater than the current Focus
-- **THEN** Focus stops at its minimum and the multiplier remains at its valid base value
+- FROM: `### Requirement: Focus rewards uninterrupted coding`
+- TO: `### Requirement: Focus rewards attentive review`
+- FROM: `### Requirement: Opening an interruption decision requires fresh coding input`
+- TO: `### Requirement: Opening an interruption decision suspends AI work safely`
+- FROM: `### Requirement: Temporary tool disruptions modify coding against game time`
+- TO: `### Requirement: Temporary tool disruptions modify AI work against game time`

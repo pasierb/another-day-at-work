@@ -12,7 +12,7 @@ import type { ConsequenceFeedback,Effect } from '../domain/effects';
 import { createRunContext, InterruptionSession, type ActiveInterruptionSnapshot, type InterruptionChoiceDefinition,
     type InterruptionSessionSnapshot, type TransitionBatch } from '../domain/interruptions';
 import { REGIONS } from '../ui/layout';
-import { actionButton, disabledAction, heading, meter, panel, type ActionView, type MeterView } from '../ui/primitives';
+import { actionButton, heading, meter, panel, roundedSurface, toolbarActionButton, type ActionView, type MeterView } from '../ui/primitives';
 import { COLORS, DEPTH, TYPE } from '../ui/theme';
 import { WorkdaySession } from '../domain/WorkdaySession';
 import { DEVELOPER_PACING_PROFILE,NORMAL_PACING_PROFILE } from '../domain/WorkdayPacing';
@@ -22,6 +22,8 @@ import { browserGuidanceStorage, GuidancePreference } from '../presentation/Guid
 import { createGuidanceOverlay, type GuidanceOverlayView } from '../presentation/GuidanceOverlay';
 import { InteractionLifecycle, type InteractionCancelReason } from '../presentation/InteractionLifecycle';
 import { installWorkstationDiagnostics } from '../presentation/PlaytestDiagnostics';
+import { presentationTexture, STRESS_BUNDLES } from '../presentation/assets';
+import { interruptionIdentity,notificationIdentity,severityMarker } from '../presentation/identities';
 
 const textStyle = { fontFamily: TYPE.family, fontSize: TYPE.body, color: COLORS.text } as const;
 const mutedStyle = { fontFamily: TYPE.family, fontSize: TYPE.small, color: COLORS.textMuted } as const;
@@ -62,14 +64,20 @@ export class Workstation extends Scene {
     private codingActionBackground!: GameObjects.Rectangle;
     private codingActionLabel!: GameObjects.Text;
     private codingActionDetail!: GameObjects.Text;
+    private planActionBackground!: GameObjects.Rectangle;
+    private planActionLabel!: GameObjects.Text;
+    private planActionDetail!: GameObjects.Text;
     private codingTaskText!: GameObjects.Text;
     private codingProgressText!: GameObjects.Text;
     private codingProgressMeter!: MeterView;
     private focusText!: GameObjects.Text;
     private alertsContent!: GameObjects.Container;
+    private floatingAlerts?:GameObjects.Container;
     private alertsCountText!: GameObjects.Text;
     private decisionOverlay?: GameObjects.Container;
     private taskRows?: GameObjects.Container;
+    private taskFilter:'all'|'current'|'urgent'='all';
+    private taskTabs?:Record<'all'|'current'|'urgent',{background:GameObjects.Rectangle;label:GameObjects.Text}>;
     private consequenceFeedbackText?:GameObjects.Text;
     private consequenceFeedback:ConsequenceFeedback[]=[];
     private needViews!: Record<NeedId, { label: GameObjects.Text; meter: MeterView }>;
@@ -80,7 +88,7 @@ export class Workstation extends Scene {
     private boosterFeedbackText?: GameObjects.Text;
     private bathroomInProgress = false;
     private resultsStarted=false;
-    private decor?:GameObjects.Container;private stressText?:GameObjects.Text;private muteText?:GameObjects.Text;
+    private decor?:GameObjects.Container;private stressText?:GameObjects.Text;private muteText?:GameObjects.Text;private stressWash?:GameObjects.Rectangle;
     private audio?:SceneAudioDirector;private detachAudio?:()=>void;private unsubscribeAudio?:()=>void;
     private knownAlerts=new Set<string>();private initializedAlerts=false;private criticalNeeds=new Set<NeedId>();
     private guidancePreference?:GuidancePreference;private guidanceOverlay?:GuidanceOverlayView;private guidanceDismissed=false;
@@ -94,7 +102,7 @@ export class Workstation extends Scene {
         this.consequenceFeedback.length=0;
         this.resultsStarted=false;
         const profile=import.meta.env.VITE_PACING_PROFILE==='developer'?DEVELOPER_PACING_PROFILE:NORMAL_PACING_PROFILE;
-        this.session=new WorkdaySession(profile,20260906,record=>this.showConsequenceFeedback(record));
+        this.session=new WorkdaySession(profile,20260906,record=>this.showConsequenceFeedback(record),false);
         this.workday=this.session.workday;this.coding=this.session.coding;this.taskQueue=this.session.taskQueue;this.playerNeeds=this.session.playerNeeds;this.boosters=this.session.boosters;this.interruptions=this.session.interruptions;this.scheduler=this.session.scheduler;this.consequenceQueue=this.session.consequenceQueue;this.disruptions=this.session.disruptions;this.effectEngine=this.session.effectEngine;
         this.cameras.main.setBackgroundColor(COLORS.backdrop);
         this.buildBackdrop();
@@ -130,119 +138,165 @@ export class Workstation extends Scene {
 
     update (_time: number, delta: number) {
         if (!this.advancesWorkday) return;
-        const beforeElapsed = this.workday.snapshot.elapsedGameMs;
-        this.workday.advance(delta);
-        this.synchronizeWorld();
-        const elapsedGameMs = this.workday.snapshot.elapsedGameMs - beforeElapsed;
-        const result = this.coding.update(elapsedGameMs, this.workday.snapshot.resources.stamina, this.taskQueue.nextWorkBoundary());
-        if (result.staminaCost > 0) this.workday.mutateResource('stamina', -result.staminaCost);
-        if (result.workProduced > 0) {
-            const transition = this.taskQueue.applyWork(result.workProduced);
-            if (transition.completionEffects.length) this.effectEngine.execute(transition.completionEffects, transition.completedTaskId!);
-            if (transition.decisionOpened) this.openTaskDecision();
-            if (transition.decisionOpened || transition.completedTaskId) this.cancelHeldCodingForDecision();
-        }
-        this.synchronizeCodingAvailability();
-        if (!this.coding.snapshot.isAvailable) this.clearHeldCodingSources();
+        this.session.advanceRealMs(delta);
+        this.renderCoding(this.coding.snapshot);
+        if(this.taskQueue.snapshot.pendingDecision&&!this.decisionOverlay)this.openTaskDecision();
         this.enterResultsIfComplete();
     }
 
     private buildBackdrop () {
-        this.add.rectangle(640,360,1280,720,COLORS.desk).setDepth(DEPTH.background);
-        this.add.rectangle(640,710,1280,20,COLORS.deskEdge).setDepth(DEPTH.background);
-        this.decor=this.add.container(0,0).setDepth(DEPTH.decoration);this.stressText=this.add.text(24,680,'',{fontFamily:TYPE.family,fontSize:11,color:'#c5ae99',fontStyle:'bold'});this.decor.add(this.stressText);
+        this.add.image(640,360,presentationTexture(this,'presentation.background.office')).setDisplaySize(1280,720).setDepth(DEPTH.background);
+        this.add.image(640,360,presentationTexture(this,'presentation.environment.desk')).setDisplaySize(1280,720).setDepth(DEPTH.environment);
+        if(this.textures.exists('presentation.character.calm'))this.add.image(640,155,'presentation.character.calm').setDisplaySize(344,230).setDepth(DEPTH.character);
+        if(this.textures.exists('presentation.ui.laptop-shell'))this.add.image(640,474,'presentation.ui.laptop-shell').setDisplaySize(520,378).setDepth(DEPTH.environment);
+        if(this.textures.exists('presentation.foreground.frame'))this.add.image(640,360,'presentation.foreground.frame').setDisplaySize(1280,720).setDepth(DEPTH.foreground);
+        this.stressWash=this.add.rectangle(0,0,1280,720,0x6b2438,0).setOrigin(0).setDepth(DEPTH.character+1);
+        this.decor=this.add.container(0,0).setDepth(DEPTH.foreground);this.stressText=this.add.text(80,684,'',{fontFamily:TYPE.family,fontSize:11,color:'#3b2431',fontStyle:'bold'});this.decor.add(this.stressText);
     }
 
-    private buildMuteControl():void{const bg=this.add.rectangle(1144,684,112,28,COLORS.surfaceMuted).setOrigin(0).setStrokeStyle(2,COLORS.borderStrong).setDepth(DEPTH.controls).setInteractive({useHandCursor:true});this.muteText=this.add.text(1200,698,'',{fontFamily:TYPE.family,fontSize:TYPE.small,color:COLORS.text,fontStyle:'bold'}).setOrigin(.5).setDepth(DEPTH.controls);bg.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>gameAudio.toggle());this.unsubscribeAudio=gameAudio.subscribe(()=>{this.audio?.sync();this.muteText?.setText(gameAudio.muted?'× SOUND MUTED':'♪ SOUND ON');});}
+    private buildMuteControl():void{const visual=roundedSurface(this,1144,658,112,54,0x1b2836,COLORS.borderStrong,9,.98,2).setDepth(DEPTH.controls),bg=this.add.rectangle(1144,658,112,54,0xffffff,0).setOrigin(0).setDepth(DEPTH.controls).setInteractive({useHandCursor:true});this.add.text(1165,684,'♫',{fontFamily:TYPE.family,fontSize:19,color:'#73d7b7'}).setOrigin(.5).setDepth(DEPTH.controls);this.muteText=this.add.text(1182,675,'',{fontFamily:TYPE.family,fontSize:9,color:COLORS.text,fontStyle:'bold'}).setDepth(DEPTH.controls);this.add.text(1182,691,'Toggle audio',{fontFamily:TYPE.family,fontSize:7,color:'#9fb0bd'}).setDepth(DEPTH.controls);const paint=(border:number)=>visual.clear().fillStyle(0x1b2836,.98).fillRoundedRect(1144,658,112,54,9).lineStyle(2,border).strokeRoundedRect(1144,658,112,54,9);bg.on(Input.Events.GAMEOBJECT_POINTER_OVER,()=>paint(COLORS.focus)).on(Input.Events.GAMEOBJECT_POINTER_OUT,()=>paint(COLORS.borderStrong)).on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>gameAudio.toggle());this.unsubscribeAudio=gameAudio.subscribe(()=>{this.audio?.sync();this.muteText?.setText(gameAudio.muted?'SOUND OFF':'SOUND ON');});}
 
-    private buildPauseControl():void{const bg=this.add.rectangle(1030,684,104,28,COLORS.surfaceMuted).setOrigin(0).setStrokeStyle(2,COLORS.borderStrong).setDepth(DEPTH.controls).setInteractive({useHandCursor:true});this.pauseText=this.add.text(1082,698,'Ⅱ PAUSE',{fontFamily:TYPE.family,fontSize:TYPE.small,color:COLORS.text,fontStyle:'bold'}).setOrigin(.5).setDepth(DEPTH.controls);bg.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.toggleExplicitPause());}
+    private buildPauseControl():void{const visual=roundedSurface(this,1028,658,108,54,0x1b2836,COLORS.borderStrong,9,.98,2).setDepth(DEPTH.controls),bg=this.add.rectangle(1028,658,108,54,0xffffff,0).setOrigin(0).setDepth(DEPTH.controls).setInteractive({useHandCursor:true});this.add.text(1048,684,'⏸',{fontFamily:TYPE.family,fontSize:18,color:'#f2bd61'}).setOrigin(.5).setDepth(DEPTH.controls);this.pauseText=this.add.text(1065,675,'PAUSE',{fontFamily:TYPE.family,fontSize:9,color:COLORS.text,fontStyle:'bold'}).setDepth(DEPTH.controls);this.add.text(1065,691,'Take a breath',{fontFamily:TYPE.family,fontSize:7,color:'#9fb0bd'}).setDepth(DEPTH.controls);const paint=(border:number)=>visual.clear().fillStyle(0x1b2836,.98).fillRoundedRect(1028,658,108,54,9).lineStyle(2,border).strokeRoundedRect(1028,658,108,54,9);bg.on(Input.Events.GAMEOBJECT_POINTER_OVER,()=>paint(COLORS.focus)).on(Input.Events.GAMEOBJECT_POINTER_OUT,()=>paint(COLORS.borderStrong)).on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.toggleExplicitPause());}
 
-    private renderPresentation():void{if(!this.decor)return;const state=derivePresentationState({dayProgress:this.workday.snapshot.dayProgress,technicalDebt:this.workday.snapshot.resources.technicalDebt,activeAlerts:this.interruptions.snapshot.active});this.stressText?.setText(`DESK STATUS · ${state.stage.toUpperCase()}`);const slots=[{x:306,y:26,w:48,h:32,label:'NOTE'},{x:902,y:74,w:42,h:22,label:'TODO'},{x:1190,y:112,w:54,h:12,label:'MAIL'},{x:18,y:648,w:58,h:22,label:'DRAFT'},{x:1050,y:650,w:70,h:18,label:'LATE'},{x:770,y:704,w:92,h:9,label:'CABLE'}];this.decor.list.slice(1).forEach(child=>child.destroy());slots.slice(0,state.clutterLevel*2).forEach((slot,index)=>{const note=this.add.rectangle(slot.x,slot.y,slot.w,slot.h,index%2?0xc99e52:0xd4c591,.9).setOrigin(0).setAngle(index%2?3:-2);const label=this.add.text(slot.x+slot.w/2,slot.y+slot.h/2,slot.label,{fontFamily:TYPE.family,fontSize:8,color:'#332a22',fontStyle:'bold'}).setOrigin(.5).setAngle(note.angle);this.decor!.add([note,label]);});}
+    private renderPresentation():void{if(!this.decor)return;const state=derivePresentationState({dayProgress:this.workday.snapshot.dayProgress,technicalDebt:this.workday.snapshot.resources.technicalDebt,activeAlerts:this.interruptions.snapshot.active});const bundle=STRESS_BUNDLES[state.stage];this.stressText?.setText(`DESK STATUS · ${state.stage.toUpperCase()}`);this.tweens.add({targets:this.stressWash,alpha:bundle.alpha,duration:240,ease:'Sine.easeOut'});const slots=[{x:306,y:30,w:48,h:28,label:'NOTE'},{x:902,y:78,w:42,h:20,label:'PAPERS'},{x:780,y:705,w:92,h:8,label:'CABLE'}];this.decor.list.slice(1).forEach(child=>child.destroy());bundle.props.forEach((label,index)=>{const slot=slots[index];const note=this.add.rectangle(slot.x,slot.y,slot.w,slot.h,index%2?0xc99e52:0xd4c591,.92).setOrigin(0).setAngle(index%2?3:-2);this.decor!.add([note,this.add.text(slot.x+slot.w/2,slot.y+slot.h/2,label.toUpperCase(),{fontFamily:TYPE.family,fontSize:7,color:'#332a22',fontStyle:'bold'}).setOrigin(.5).setAngle(note.angle)]);});}
 
     private buildResourceHud () {
-        const root = panel(this, REGIONS.resourceHud);
-        heading(this, root, 'Workday status');
+        const root = panel(this, REGIONS.resourceHud,0x172331).setDepth(DEPTH.controls);
+        root.add([
+            this.add.text(18,8,'Another\nDay at Work',{fontFamily:TYPE.family,fontSize:17,color:'#ffffff',fontStyle:'bold italic',lineSpacing:-4}),
+            this.add.text(18,52,'BUILD · SURVIVE · SHIP',{fontFamily:TYPE.family,fontSize:7,color:'#9fb0bd'}),
+            this.add.rectangle(154,0,1,72,0x52616b,.7).setOrigin(0)
+        ]);
         this.needViews = {} as Record<NeedId, { label: GameObjects.Text; meter: MeterView }>;
-        ([{ id: 'sleepiness', x: 170, color: COLORS.blue }, { id: 'toilet', x: 470, color: COLORS.amber }] as const).forEach(item => {
-            const label = this.add.text(item.x, 17, '', { ...mutedStyle, fontSize: 10 });
+        ([{ id: 'sleepiness', x: 209, meterX:368, color: COLORS.blue }, { id: 'toilet', x: 747, meterX:912, color: COLORS.amber }] as const).forEach(item => {
+            const label = this.add.text(item.x, 54, '', { ...mutedStyle, fontSize: 7 });
             root.add(label);
-            this.needViews[item.id] = { label, meter: meter(this, root, item.x, 32, 270, 0, item.color) };
+            this.needViews[item.id] = { label, meter: meter(this, root, item.meterX, 57, 42, 0, item.color) };
         });
         const resources = [
-            { key: 'stamina', x: 18, label: 'STAMINA', fill: COLORS.amber },
-            { key: 'poHappiness', x: 318, label: 'PO HAPPINESS', fill: COLORS.mint },
-            { key: 'systemStability', x: 618, label: 'SYSTEM STABILITY', fill: COLORS.danger }
+            { key: 'stamina', x: 164, label: 'Stamina', fill: COLORS.amber, icon:'☕' },
+            { key: 'poHappiness', x: 433, label: 'PO Happiness', fill: COLORS.mint, icon:'PO' },
+            { key: 'systemStability', x: 702, label: 'System Stability', fill: COLORS.danger, icon:'SYS' }
         ] as const;
         const views = {} as Record<ResourceKey, { value: GameObjects.Text; meter: MeterView }>;
         resources.forEach(item => {
-            root.add(this.add.text(item.x, 44, item.label, mutedStyle));
-            const value = this.add.text(item.x + 218, 43, '', textStyle).setOrigin(1, 0);
+            root.add(this.add.rectangle(item.x+2,7,37,42,item.key==='poHappiness'?0xf0b990:0x263648).setOrigin(0).setStrokeStyle(1,0x607487));
+            root.add(this.add.text(item.x+20,28,item.icon,{fontFamily:TYPE.family,fontSize:item.icon.length>2?8:17,color:'#ffffff',fontStyle:'bold'}).setOrigin(.5));
+            root.add(this.add.text(item.x+48,8,item.label,{...textStyle,fontSize:12,fontStyle:'bold'}));
+            const value = this.add.text(item.x + 258, 9, '', {...textStyle,fontSize:10,fontStyle:'bold'}).setOrigin(1, 0);
             root.add(value);
-            views[item.key] = { value, meter: meter(this, root, item.x, 66, 218, 0, item.fill) };
+            views[item.key] = { value, meter: meter(this, root, item.x+48, 29, 210, 0, item.fill) };
         });
+        root.add(this.add.text(481,54,'“Keep it up!”',{fontFamily:TYPE.family,fontSize:8,color:'#b8f3d1',fontStyle:'italic'}));
         this.resourceViews = views;
     }
 
     private buildDayClock () {
-        const root = panel(this, REGIONS.dayClock, COLORS.surfaceRaised);
-        heading(this, root, 'Day clock');
-        root.add(this.add.text(16, 41, 'MONDAY · DAY 1', mutedStyle));
-        this.clockText = this.add.text(274, 34, '', { ...textStyle, fontSize: 28, fontStyle: 'bold' }).setOrigin(1, 0);
+        const root = panel(this, REGIONS.dayClock,0x172331).setDepth(DEPTH.controls);
+        root.add(this.add.text(16,10,'MONDAY · APR 21',{...mutedStyle,fontSize:8}));
+        this.clockText = this.add.text(16, 23, '', { ...textStyle, fontSize: 24, fontStyle: 'bold' });
         root.add(this.clockText);
-        root.add(this.add.text(16, 70, 'DAY PROGRESS', mutedStyle));
-        this.dayProgressMeter = meter(this, root, 118, 73, 156, 0, COLORS.mint);
+        root.add(this.add.text(126,21,'☀',{fontFamily:TYPE.family,fontSize:22,color:'#ffc43d'}));
+        root.add(this.add.text(286,10,'JUST ONE\nMORE COMMIT…',{fontFamily:TYPE.family,fontSize:8,color:'#e9d79f',fontStyle:'italic',align:'center'}).setOrigin(1,0));
+        root.add(this.add.text(16, 55, 'DAY PROGRESS', { ...mutedStyle, fontSize: 7 }));
+        this.dayProgressMeter = meter(this, root, 86, 57, 156, 0, COLORS.mint);
+        root.add(this.add.text(276,54,'17:00',{...mutedStyle,fontSize:8}).setOrigin(1,0));
     }
 
     private buildTasks () {
-        const root = panel(this, REGIONS.taskQueue);
-        heading(this, root, 'Task queue');
+        const root = panel(this, REGIONS.taskQueue,0x172331).setDepth(DEPTH.controls);
+        heading(this, root, '☷  Tasks');
+        root.add(this.add.text(230,15,'×',{fontFamily:TYPE.family,fontSize:18,color:'#9badbd'}).setOrigin(1,0));
+        this.taskTabs={} as typeof this.taskTabs;
+        ([{id:'all',x:12,w:68,label:'ALL'},{id:'current',x:84,w:76,label:'CURRENT'},{id:'urgent',x:164,w:74,label:'URGENT'}] as const).forEach(item=>{
+            const background=this.add.rectangle(item.x,44,item.w,28,COLORS.surfaceMuted).setOrigin(0).setInteractive({useHandCursor:true});
+            const label=this.add.text(item.x+item.w/2,58,item.label,{fontFamily:TYPE.family,fontSize:9,color:'#aebdca',fontStyle:'bold'}).setOrigin(.5);
+            background.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.setTaskFilter(item.id));
+            this.taskTabs![item.id]={background,label};root.add([background,label]);
+        });
+        this.paintTaskTabs();
         this.taskRows = this.add.container(0, 0); root.add(this.taskRows);
-        root.add(this.add.text(16, 420, 'TECH DEBT', { ...textStyle, fontStyle: 'bold' }));
-        const technicalDebtMeter = meter(this, root, 16, 448, 242, 0, COLORS.amber);
-        const technicalDebtValue = this.add.text(16, 470, '', mutedStyle);
-        root.add(technicalDebtValue);
+        root.add(this.add.rectangle(0,446,250,1,0x52616b,.65).setOrigin(0));
+        for(let index=0;index<3;index++)root.add(this.add.rectangle(18+index*3,470-index*5,32,9,0xe3a936).setOrigin(0).setStrokeStyle(1,0x8f6517));
+        root.add(this.add.text(58,460,'Tech Debt',{fontFamily:TYPE.family,fontSize:13,color:COLORS.text,fontStyle:'bold'}));
+        const technicalDebtMeter = meter(this, root, 58, 486, 132, 0, COLORS.amber);
+        const technicalDebtValue = this.add.text(232,479, '', {...textStyle,fontSize:14,fontStyle:'bold'}).setOrigin(1,0);
+        root.add([technicalDebtValue,this.add.text(58,510,"It's watching you...  👀",{...mutedStyle,fontSize:9,color:'#9fb0bd'})]);
         this.resourceViews.technicalDebt = { value: technicalDebtValue, meter: technicalDebtMeter };
     }
 
-    private renderTaskQueue(snapshot:EngineeringTaskQueueSnapshot):void{if(!this.taskRows)return;this.taskRows.removeAll(true);const open=snapshot.tasks.filter(t=>!t.isComplete).length;this.taskRows.add(this.add.text(16,40,`${open} OPEN  ·  ${snapshot.tasks.filter(t=>t.priority==='urgent'&&!t.isComplete).length} URGENT`,mutedStyle));snapshot.tasks.forEach((task,index)=>{const y=62+index*68;const color=task.isComplete?COLORS.mint:task.isSelected?COLORS.blue:task.priority==='urgent'?COLORS.danger:COLORS.border;const bg=this.add.rectangle(16,y,242,58,task.isSelected?0x183251:COLORS.surfaceRaised).setOrigin(0).setStrokeStyle(task.isSelected?2:1,color);if(!task.isComplete&&!this.decisionOverlay){bg.setInteractive({useHandCursor:true});bg.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.selectTask(task.id));}this.taskRows!.add([bg,this.add.text(26,y+7,task.title,{...textStyle,fontSize:12,fontStyle:'bold'}),this.add.text(26,y+29,`${task.id} · ${task.priority.toUpperCase()}`,{...mutedStyle,fontSize:9}),this.add.text(248,y+29,task.isComplete?'DONE':`${task.progress.toFixed(0)}%`,{...mutedStyle,color:`#${color.toString(16).padStart(6,'0')}`}).setOrigin(1,0)]);});}
+    private setTaskFilter(filter:'all'|'current'|'urgent'):void{if(this.taskFilter===filter)return;this.taskFilter=filter;this.paintTaskTabs();this.renderTaskQueue(this.taskQueue.snapshot);}
+
+    private paintTaskTabs():void{if(!this.taskTabs)return;(Object.keys(this.taskTabs) as Array<keyof typeof this.taskTabs>).forEach(id=>{const tab=this.taskTabs![id],active=id===this.taskFilter;tab.background.setFillStyle(active?0x286aa1:0x202d3d).setStrokeStyle(1,active?0x70b7ef:0x34485d);tab.label.setColor(active?'#ffffff':'#aebdca');});}
+
+    private renderTaskQueue(snapshot:EngineeringTaskQueueSnapshot):void{
+        if(!this.taskRows)return;this.taskRows.removeAll(true);
+        const tasks=snapshot.tasks.filter(task=>this.taskFilter==='all'||(this.taskFilter==='current'&&task.isSelected)||(this.taskFilter==='urgent'&&task.priority==='urgent'&&!task.isComplete));
+        if(!tasks.length){this.taskRows.add(this.add.text(18,104,this.taskFilter==='urgent'?'No urgent tasks. Nice.':'No task selected.',{...mutedStyle,color:'#d8e2ea'}));return;}
+        tasks.forEach((task,index)=>{
+            const y=82+index*70,selected=task.isSelected,urgent=task.priority==='urgent'&&!task.isComplete;
+            const fill=selected?0x1c5d91:urgent?0xf7d5de:0xf2f5f8,border=selected?0x68bfff:urgent?0xf05c75:0xaeb9c3,text=selected?'#ffffff':'#172331',sub=selected?'#c9e7ff':'#667585';
+            if(selected)this.taskRows!.add(roundedSurface(this,12,y,226,62,0x3b9ee8,0x2b8ed5,10,.22,4));
+            const cardSurface=roundedSurface(this,16,y+3,218,56,fill,border,8,1,selected?2:1);
+            const bg=this.add.rectangle(16,y+3,218,56,0xffffff,0).setOrigin(0);
+            if(!task.isComplete&&!this.decisionOverlay){bg.setInteractive({useHandCursor:true});bg.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.selectTask(task.id));}
+            const iconFill=task.isComplete?0x40ae73:selected?0x367eb4:urgent?0xee6680:0xe5ebf0;
+            const icon=this.add.rectangle(25,y+14,18,18,iconFill).setOrigin(0).setStrokeStyle(1,selected?0xa9dcff:0x8798a7);
+            const pillColor=task.isComplete?0x40ae73:task.priority==='low'?0x40ae73:task.priority==='medium'?0xd99820:task.priority==='high'?0xec624c:0xd92f4d;
+            const pillLabel=task.isComplete?'DONE':task.priority.toUpperCase();const pillWidth=Math.max(42,pillLabel.length*6+12);
+            const pill=this.add.rectangle(224-pillWidth,y+35,pillWidth,18,pillColor).setOrigin(0);
+            this.taskRows!.add([cardSurface,bg,icon,this.add.text(34,y+23,task.isComplete?'✓':'↗',{fontFamily:TYPE.family,fontSize:10,color:'#ffffff',fontStyle:'bold'}).setOrigin(.5),
+                this.add.text(51,y+11,task.title,{fontFamily:TYPE.family,fontSize:10,color:text,fontStyle:'bold'}),
+                this.add.text(51,y+31,task.id,{fontFamily:TYPE.family,fontSize:8,color:sub}),pill,
+                this.add.text(224-pillWidth/2,y+44,pillLabel,{fontFamily:TYPE.family,fontSize:8,color:'#ffffff',fontStyle:'bold'}).setOrigin(.5),
+                this.add.text(224,y+12,task.isComplete?'100%':`${task.progress.toFixed(0)}%`,{fontFamily:TYPE.family,fontSize:8,color:sub}).setOrigin(1,0)
+            ]);
+        });
+    }
 
     private selectTask(taskId:string):void{if(this.decisionOverlay)return;const before=this.taskQueue.snapshot.selectedTaskId;if(!before||before===taskId||!this.taskQueue.select(taskId))return;this.coding.reduceFocus(TASK_SWITCH_FOCUS_COST);this.cancelHeldCodingForDecision();this.synchronizeCodingAvailability();}
 
     private buildLaptop () {
         const root = panel(this, REGIONS.laptop, 0x121b28);
-        heading(this, root, 'Current task');
-        this.codingTaskText = this.add.text(16, 44, '', { ...mutedStyle, color: '#6db5ff' });
+        heading(this, root, 'Current task',16,10);
+        this.codingTaskText = this.add.text(16, 30, '', { ...mutedStyle, fontSize:8,color: '#6db5ff' });
         root.add(this.codingTaskText);
-        root.add(this.add.rectangle(28, 82, 580, 338, 0x0a111c).setOrigin(0).setStrokeStyle(3, 0x344861));
-        root.add(this.add.rectangle(44, 100, 548, 266, 0x101c2b).setOrigin(0));
-        root.add(this.add.text(64, 122, 'search_service.py', mutedStyle));
+        root.add(roundedSurface(this,16,46,388,142,0x0a111c,0x344861,8,1,3));
+        root.add(roundedSurface(this,25,55,370,124,0x101c2b,0x1e3044,5));
+        root.add(this.add.text(38, 62, 'search_service.py', {...mutedStyle,fontSize:8}));
         const code = ['def search_users(query: str):', '    # TODO: improve performance', '    results = db.search(query)', '    return results'];
-        root.add(this.add.text(64, 158, code.join('\n'), { fontFamily: 'monospace', fontSize: 16, color: '#8fdbca', lineSpacing: 10 }));
-        const action = this.add.container(132, 292);
-        this.codingActionBackground = this.add.rectangle(0, 0, 372, 48, COLORS.blue).setOrigin(0).setStrokeStyle(2, 0x8ac5ff).setInteractive({ useHandCursor: true });
-        this.codingActionLabel = this.add.text(186, 15, 'HOLD TO CODE', { ...textStyle, fontStyle: 'bold' }).setOrigin(0.5);
-        this.codingActionDetail = this.add.text(186, 35, '', mutedStyle).setOrigin(0.5);
-        action.add([this.codingActionBackground, this.codingActionLabel, this.codingActionDetail]);
+        root.add(this.add.text(38, 79, code.join('\n'), { fontFamily: 'monospace', fontSize: 9, color: '#8fdbca', lineSpacing: 3 }));
+        const action = this.add.container(24, 92);
+        this.codingActionBackground = this.add.rectangle(0, 0, 178, 42, COLORS.blue).setOrigin(0).setStrokeStyle(2, 0x8ac5ff).setInteractive({ useHandCursor: true });
+        this.codingActionLabel = this.add.text(89, 12, 'PROMPT MODE', { ...textStyle,fontSize:10, fontStyle: 'bold' }).setOrigin(0.5);
+        this.codingActionDetail = this.add.text(89, 29, 'Fast · more uncertain', {...mutedStyle,fontSize:7}).setOrigin(0.5);
+        this.planActionBackground = this.add.rectangle(186, 0, 178, 42, COLORS.surfaceRaised).setOrigin(0).setStrokeStyle(2, COLORS.mint).setInteractive({ useHandCursor: true });
+        this.planActionLabel = this.add.text(275, 12, 'PLAN MODE', { ...textStyle,fontSize:10, fontStyle: 'bold' }).setOrigin(0.5);
+        this.planActionDetail = this.add.text(275, 29, 'Slower · safer', {...mutedStyle,fontSize:7}).setOrigin(0.5);
+        action.add([this.codingActionBackground, this.codingActionLabel, this.codingActionDetail,this.planActionBackground,this.planActionLabel,this.planActionDetail]);
         root.add(action);
-        root.add(this.add.text(44, 386, 'CODING PROGRESS', mutedStyle));
-        this.codingProgressMeter = meter(this, root, 168, 389, 350, 0, COLORS.blue);
-        this.codingProgressText = this.add.text(592, 381, '', textStyle).setOrigin(1, 0);
+        root.add(this.add.text(24, 202, 'CODING PROGRESS', {...mutedStyle,fontSize:8}));
+        this.codingProgressMeter = meter(this, root, 126, 204, 226, 0, COLORS.blue);
+        this.codingProgressText = this.add.text(394, 198, '', {...textStyle,fontSize:9}).setOrigin(1, 0);
         root.add(this.codingProgressText);
-        this.focusText = this.add.text(44, 408, '', { ...mutedStyle, color: '#8fdbca' });
+        this.focusText = this.add.text(24, 224, '', { ...mutedStyle,fontSize:8, color: '#8fdbca' });
         root.add(this.focusText);
-        root.add(this.add.polygon(318, 458, [0, 0, 246, 0, 292, 38, -46, 38], 0x303c4c).setStrokeStyle(2, 0x4b5d72));
-        root.add(this.add.text(318, 477, 'WORKSTATION', { ...mutedStyle, fontStyle: 'bold' }).setOrigin(0.5));
+        root.add(this.add.polygon(210, 252, [0, 0, 158, 0, 184, 38, -26, 38], 0x303c4c).setStrokeStyle(2, 0x4b5d72));
+        root.add(this.add.text(210, 271, 'WORKSTATION', { ...mutedStyle,fontSize:8, fontStyle: 'bold' }).setOrigin(0.5));
     }
 
     private buildAlerts () {
-        const root = panel(this, REGIONS.alerts);
-        heading(this, root, 'Messages & alerts');
-        this.alertsCountText = this.add.text(16, 44, '', mutedStyle);
-        this.alertsContent = this.add.container(REGIONS.alerts.x, REGIONS.alerts.y).setDepth(DEPTH.content);
+        const root = panel(this, REGIONS.alerts,0x172331).setDepth(DEPTH.controls);
+        heading(this, root, '✉  Messages & alerts');
+        const tabs=[{x:12,w:56,label:'ALL',active:true},{x:72,w:76,label:'SLACK'},{x:152,w:88,label:'SYSTEM'}];
+        tabs.forEach(item=>root.add([this.add.rectangle(item.x,42,item.w,28,item.active?0x286aa1:0x202d3d).setOrigin(0).setStrokeStyle(1,item.active?0x70b7ef:0x34485d),this.add.text(item.x+item.w/2,56,item.label,{...mutedStyle,fontSize:9,color:item.active?'#ffffff':'#aebdca',fontStyle:'bold'}).setOrigin(.5)]));
+        this.alertsCountText = this.add.text(16, 78, '', {...mutedStyle,fontSize:9});
+        this.alertsContent = this.add.container(REGIONS.alerts.x, REGIONS.alerts.y).setDepth(DEPTH.controls);
+        this.floatingAlerts=this.add.container(0,0).setDepth(DEPTH.controls);
         root.add(this.alertsCountText);
-        this.consequenceFeedbackText=this.add.text(16,62,'',{...mutedStyle,color:'#8fdbca',wordWrap:{width:258}});root.add(this.consequenceFeedbackText);
-        this.needFeedbackText=this.add.text(16,92,'',{...mutedStyle,fontSize:10,color:'#f5b84b',wordWrap:{width:258}});root.add(this.needFeedbackText);
-        this.boosterFeedbackText=this.add.text(16,106,'',{...mutedStyle,fontSize:10,color:'#8fdbca',wordWrap:{width:258}});root.add(this.boosterFeedbackText);
+        this.consequenceFeedbackText=this.add.text(16,94,'',{...mutedStyle,fontSize:8,color:'#8fdbca',wordWrap:{width:220}});root.add(this.consequenceFeedbackText);
+        this.needFeedbackText=this.add.text(16,106,'',{...mutedStyle,fontSize:8,color:'#f5b84b',wordWrap:{width:220}});root.add(this.needFeedbackText);
+        this.boosterFeedbackText=this.add.text(16,106,'',{...mutedStyle,fontSize:8,color:'#8fdbca',wordWrap:{width:220}});root.add(this.boosterFeedbackText);
     }
 
     private renderInterruptions (snapshot: InterruptionSessionSnapshot): void {
@@ -251,29 +305,28 @@ export class Workstation extends Scene {
         this.knownAlerts=new Set(snapshot.active.map(item=>item.id));
         this.alertsCountText.setText(`${snapshot.active.length} ACTIVE  ·  ${this.scheduler?.snapshot.pendingCount ?? 0} PENDING`);
         this.alertsContent.removeAll(true);
+        this.floatingAlerts?.removeAll(true);
         const ordered = [...snapshot.active].sort((a, b) => severityRanks[b.severity] - severityRanks[a.severity]
             || a.activationGameMs - b.activationGameMs || a.activationSequence - b.activationSequence);
         ordered.forEach((event, index) => {
-            const y = 120 + index * 116;
+            const y = 118 + index * 92;
             const color = severityColors[event.severity];
             const urgent = severityRanks[event.severity] >= severityRanks.high;
-            const background = this.add.rectangle(16, y, 258, 104, urgent ? 0x3a2028 : COLORS.surfaceRaised).setOrigin(0).setStrokeStyle(urgent ? 3 : 1, color).setInteractive({ useHandCursor: true });
-            background.on(Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.openDecision(event.id));
-            const postponeHit = this.add.rectangle(24, y + 74, 104, 26, COLORS.surfaceMuted).setOrigin(0).setStrokeStyle(1, COLORS.blue).setInteractive({ useHandCursor: true });
-            const ignoreHit = this.add.rectangle(142, y + 74, 110, 26, COLORS.surfaceMuted).setOrigin(0).setStrokeStyle(1, COLORS.amber).setInteractive({ useHandCursor: true });
-            const postpone = this.add.text(76, y + 81, 'POSTPONE', { ...mutedStyle, color: '#8ac5ff', fontStyle: 'bold' }).setOrigin(0.5, 0);
-            const ignore = this.add.text(197, y + 81, 'IGNORE', { ...mutedStyle, color: '#f5b84b', fontStyle: 'bold' }).setOrigin(0.5, 0);
-            postponeHit.on(Input.Events.GAMEOBJECT_POINTER_DOWN, () => { this.input.stopPropagation(); this.postponeInterruption(event.id); });
-            ignoreHit.on(Input.Events.GAMEOBJECT_POINTER_DOWN, () => { this.input.stopPropagation(); this.ignoreInterruption(event.id); });
-            this.alertsContent.add([
-                background,
-                this.add.text(28, y + 10, `${event.severity==='critical'?'!!!':event.severity==='high'?'!!':event.severity==='medium'?'▲':'•'} ${event.category.replace('-', ' ').toUpperCase()}`, { ...mutedStyle, color: `#${color.toString(16).padStart(6, '0')}`, fontStyle: 'bold' }),
-                this.add.text(262, y + 10, `${event.severity.toUpperCase()} · ${event.ageGameMinutes}m`, mutedStyle).setOrigin(1, 0),
-                this.add.text(28, y + 34, event.title, { ...textStyle, fontStyle: 'bold' }),
-                this.add.text(28, y + 57, event.copy, { ...mutedStyle, wordWrap: { width: 226 }, lineSpacing: 2 }), postponeHit, ignoreHit, postpone, ignore
+            const identity=notificationIdentity(event.id,event.category);
+            const cardSurface=roundedSurface(this,10,y,232,82,0xf3f6f9,urgent?color:0xaeb9c3,8,1,urgent?2:1);
+            const background = this.add.rectangle(10, y, 232, 82, 0xffffff,0).setOrigin(0);
+            const avatar=this.add.rectangle(18,y+10,30,30,0xffffff).setOrigin(0).setStrokeStyle(1,0xcbd3da);
+            const avatarContent=identity.texture&&this.textures.exists(identity.texture)?this.add.image(33,y+25,identity.texture).setDisplaySize(23,23):this.add.text(33,y+25,identity.fallback,{fontFamily:TYPE.family,fontSize:identity.fallback.length>2?8:11,color:urgent?'#d43f4b':'#172331',fontStyle:'bold'}).setOrigin(.5);
+            this.alertsContent.add([cardSurface,background,avatar,avatarContent,
+                this.add.text(56,y+9,identity.sender,{fontFamily:TYPE.family,fontSize:10,color:'#172331',fontStyle:'bold'}),
+                this.add.text(232,y+10,`${event.ageGameMinutes}m ago`,{fontFamily:TYPE.family,fontSize:8,color:'#667585'}).setOrigin(1,0),
+                this.add.text(56,y+24,identity.channel,{fontFamily:TYPE.family,fontSize:8,color:urgent?'#d43f4b':'#667585',fontStyle:urgent?'bold':'normal'}),
+                this.add.text(18,y+45,event.title,{fontFamily:TYPE.family,fontSize:10,color:urgent?'#bc2633':'#172331',fontStyle:'bold'}),
+                this.add.text(18,y+62,event.copy,{fontFamily:TYPE.family,fontSize:8,color:'#405164',wordWrap:{width:210},lineSpacing:1})
             ]);
+            this.addFloatingInterruption(event,index);
         });
-        if (snapshot.active.length === 0) this.alertsContent.add(this.add.text(16, 120, 'No active interruptions.', mutedStyle));
+        if (snapshot.active.length === 0) this.alertsContent.add(this.add.text(16, 126, 'You are all caught up.', {...mutedStyle,color:'#d8e2ea'}));
         this.renderDecision(snapshot.openInterruption);
         this.renderPresentation();
     }
@@ -286,22 +339,37 @@ export class Workstation extends Scene {
         this.synchronizeCodingAvailability();
     }
 
+    private addFloatingInterruption(event:ActiveInterruptionSnapshot,index:number):void{
+        if(!this.floatingAlerts)return;
+        const slots=[{x:282,y:100,a:-1},{x:758,y:104,a:1},{x:292,y:238,a:1},{x:748,y:242,a:-1}] as const,slot=slots[index%slots.length];
+        const identity=notificationIdentity(event.id,event.category),urgent=severityRanks[event.severity]>=severityRanks.high;
+        const fill=urgent?0x9f2329:event.category==='product-owner'?0xf7dce5:0xf4f6f8,stroke=urgent?0xff665f:event.category==='product-owner'?0xff7198:0xaeb9c3;
+        const ink=urgent?'#ffffff':'#172331',sub=urgent?'#ffd6d2':'#5c6c7b';
+        const group=this.add.container(slot.x,slot.y).setAngle(slot.a);
+        const rows=Math.ceil(event.choices.length/2),height=82+rows*25;
+        const surface=roundedSurface(this,0,0,228,height,fill,stroke,10,urgent ? .97 : .95,urgent?3:1);
+        const icon=identity.texture&&this.textures.exists(identity.texture)?this.add.image(24,24,identity.texture).setDisplaySize(25,25):this.add.text(24,24,identity.fallback,{fontFamily:TYPE.family,fontSize:10,color:ink,fontStyle:'bold'}).setOrigin(.5);
+        group.add([surface,icon,this.add.text(45,10,identity.sender,{fontFamily:TYPE.family,fontSize:10,color:ink,fontStyle:'bold'}),this.add.text(214,11,`${event.ageGameMinutes}m`,{fontFamily:TYPE.family,fontSize:8,color:sub}).setOrigin(1,0),this.add.text(14,40,event.title,{fontFamily:TYPE.family,fontSize:10,color:ink,fontStyle:'bold'}),this.add.text(14,56,event.copy,{fontFamily:TYPE.family,fontSize:7,color:sub,wordWrap:{width:200}})]);
+        event.choices.forEach((choice,choiceIndex)=>{
+            const column=choiceIndex%2,row=Math.floor(choiceIndex/2),bx=12+column*104,by=80+row*25,bw=98,disabled=event.status!=='active';
+            group.add(roundedSurface(this,bx,by,bw,20,disabled?0x69737b:urgent?0xfff1ed:0xe7eef5,disabled?0x8d969d:urgent?0xffb1a7:0x6b91ad,6,disabled ? .45 : 1,1));
+            const hit=this.add.rectangle(bx,by,bw,20,0xffffff,0).setOrigin(0);if(!disabled)hit.setInteractive({useHandCursor:true}).once(Input.Events.GAMEOBJECT_POINTER_UP,()=>this.chooseStickyAction(event.id,choice.id));
+            group.add([hit,this.add.text(bx+bw/2,by+10,choice.label,{fontFamily:TYPE.family,fontSize:7,color:disabled?'#d0d5d8':urgent?'#8e2026':'#173247',fontStyle:'bold'}).setOrigin(.5)]);
+        });
+        this.floatingAlerts.add(group);
+    }
+
+    private chooseStickyAction(interruptionId:string,choiceId:string):void{
+        if(this.interruptions.snapshot.openInterruption||this.taskQueue.snapshot.pendingDecision)return;
+        this.openDecision(interruptionId);
+        queueMicrotask(()=>this.resolveChoice(choiceId));
+    }
+
     private renderDecision (event: ActiveInterruptionSnapshot | null): void {
         if (this.taskQueue?.snapshot.pendingDecision) return;
         this.decisionOverlay?.destroy(true);
         this.decisionOverlay = undefined;
-        if (!event) return;
-        const overlay = this.add.container(0, 0).setDepth(100);
-        const scrim = this.add.rectangle(0, 0, 1280, 720, 0x05080d, 0.78).setOrigin(0).setInteractive();
-        const card = this.add.rectangle(280, 92, 720, 536, COLORS.surfaceRaised).setOrigin(0).setStrokeStyle(2, severityColors[event.severity]);
-        overlay.add([scrim, card]);
-        overlay.add(this.add.text(320, 126, `${event.category.replace('-', ' ').toUpperCase()} · ${event.severity.toUpperCase()}${event.cause?` · CAUSE ${event.cause.type.replace('-', ' ').toUpperCase()}`:''}`, { ...mutedStyle, color: '#f5b84b', fontStyle: 'bold' }));
-        overlay.add(this.add.text(320, 154, event.title, { ...textStyle, fontSize: 25, fontStyle: 'bold' }));
-        overlay.add(this.add.text(320, 196, event.copy, { ...textStyle, fontSize: 16, wordWrap: { width: 640 } }));
-        overlay.add(this.add.text(320, 238, 'Choose a response · this decision cannot be dismissed', mutedStyle));
-        const rowHeight=event.choices.length>2?78:148;
-        event.choices.forEach((choice,index)=>this.addDecisionChoice(overlay,choice,320,274+index*rowHeight,event.status==='resolving',rowHeight-12));
-        this.decisionOverlay = overlay;
+        void event;
     }
 
     private openTaskDecision():void{const pending=this.taskQueue.snapshot.pendingDecision;if(!pending)return;this.cancelHeldCodingForDecision();this.workday.pause(TASK_DECISION_PAUSE_REASON);const overlay=this.add.container(0,0).setDepth(100);const scrim=this.add.rectangle(0,0,1280,720,0x05080d,.78).setOrigin(0).setInteractive();const card=this.add.rectangle(280,92,720,536,COLORS.surfaceRaised).setOrigin(0).setStrokeStyle(2,COLORS.blue);overlay.add([scrim,card,this.add.text(320,126,'ENGINEERING DECISION',{...mutedStyle,color:'#8ac5ff',fontStyle:'bold'}),this.add.text(320,154,pending.definition.title,{...textStyle,fontSize:25,fontStyle:'bold'}),this.add.text(320,196,pending.definition.copy,{...textStyle,fontSize:16,wordWrap:{width:640}}),this.add.text(320,238,'Choose a response · coding requires a fresh press',mutedStyle)]);pending.definition.choices.forEach((choice,index)=>this.addTaskDecisionChoice(overlay,choice,320,274+index*148));this.decisionOverlay=overlay;this.renderTaskQueue(this.taskQueue.snapshot);this.synchronizeCodingAvailability();}
@@ -444,13 +512,15 @@ export class Workstation extends Scene {
     private showConsequenceFeedback(record:ConsequenceFeedback):void{this.consequenceFeedback.push(record);if(this.consequenceFeedback.length>2)this.consequenceFeedback.shift();this.consequenceFeedbackText?.setText(this.consequenceFeedback.map(item=>item.text).join('\n'));}
 
     private buildQuickActions () {
-        const root = panel(this, REGIONS.quickActions, COLORS.surfaceRaised);
+        const root = panel(this, REGIONS.quickActions,0x172331).setDepth(DEPTH.controls);
         this.boosterActions = {
-            coffee: actionButton(this, root, 10, 7, 122, 'COFFEE', '+30 Stamina', () => this.activateBooster('coffee')),
-            cokeZero: actionButton(this, root, 142, 7, 122, 'COKE ZERO', '+15 Stamina', () => this.activateBooster('cokeZero'))
+            coffee: toolbarActionButton(this,root,36,124,'☕','Coffee','+30 Stamina',()=>this.activateBooster('coffee')),
+            cokeZero: toolbarActionButton(this,root,168,124,'⚡','Coke Zero','+15 Stamina',()=>this.activateBooster('cokeZero'))
         };
-        this.toiletAction = actionButton(this, root, 274, 7, 122, 'TOILET', `${this.playerNeeds.config.bathroomGameMinutes} min`, () => this.visitBathroom());
-        ['HEADPHONES', 'LUNCH'].forEach((action, index) => disabledAction(this, root, 406 + index * 132, 7, 122, action, 'Unavailable'));
+        const addDisabled=(x:number,icon:string,label:string)=>{const group=this.add.container(x,4).setAlpha(.52);group.add([roundedSurface(this,0,0,124,54,0x1b2836,COLORS.disabled,9),roundedSurface(this,7,7,34,40,COLORS.surfaceMuted,COLORS.disabled,7),this.add.text(24,27,icon,{fontFamily:TYPE.family,fontSize:18,color:'#9aa5ad'}).setOrigin(.5),this.add.text(48,11,label,{fontFamily:TYPE.family,fontSize:9,color:COLORS.textMuted,fontStyle:'bold'}),this.add.text(48,29,'Unavailable',{fontFamily:TYPE.family,fontSize:8,color:'#7b8790'})]);root.add(group);};
+        addDisabled(300,'🎧','Headphones');
+        this.toiletAction=toolbarActionButton(this,root,432,124,'🚽','Toilet',`${this.playerNeeds.config.bathroomGameMinutes} min`,()=>this.visitBathroom());
+        addDisabled(564,'🍱','Lunch');
     }
 
     private activateBooster (id: BoosterId): void {
@@ -541,7 +611,7 @@ export class Workstation extends Scene {
             this.resourceViews[key].meter.setValue(value / 100);
         });
         const debt = snapshot.resources.technicalDebt;
-        this.resourceViews.technicalDebt.value.setText(`${Math.round(debt)}%  ·  quietly accumulating`);
+        this.resourceViews.technicalDebt.value.setText(`${Math.round(debt)}%`);
         this.resourceViews.technicalDebt.meter.setValue(debt / 100);
         this.clockText.setText(`${String(snapshot.clockHour).padStart(2, '0')}:${String(snapshot.clockMinute).padStart(2, '0')}`);
         this.dayProgressMeter.setValue(snapshot.dayProgress);
@@ -561,48 +631,22 @@ export class Workstation extends Scene {
     private renderPacingOverlay():void{if(!this.pacingOverlayText||!this.session)return;const s=this.session.debugSnapshot;this.pacingOverlayText.setText(`PACING · ${s.profile.toUpperCase()} · ${s.activeBand.toUpperCase()}\nSEED ${s.seed} · PRESSURE ${s.eventPressure} · QUIET ${Math.floor(s.quietDurationGameMs/60000)}m\nS ${Math.round(s.resources.stamina)} · PO ${Math.round(s.resources.poHappiness)} · STAB ${Math.round(s.resources.systemStability)} · N ${Math.round(s.needs.sleepiness)}/${Math.round(s.needs.toilet)}`);}
 
     private bindCodingInput (): void {
-        this.codingActionBackground.on(Input.Events.GAMEOBJECT_POINTER_DOWN, (pointer: Input.Pointer) => {
-            this.beginCodingSource(`pointer:${pointer.id}`);
-        });
-        this.input.on(Input.Events.POINTER_UP, this.releasePointerSource, this);
-        this.input.on(Input.Events.POINTER_UP_OUTSIDE, this.releasePointerSource, this);
-        this.input.on(Input.Events.GAME_OUT, this.handlePointerCancel, this);
+        this.codingActionBackground.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.activateAiPrimary('prompt'));
+        this.planActionBackground.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.session.ai.snapshot.phase==='review'?this.requestAiRevision():this.activateAiPrimary('plan'));
         this.input.keyboard?.on(Input.Keyboard.Events.ANY_KEY_DOWN, this.handleCodingKeyDown, this);
-        this.input.keyboard?.on(Input.Keyboard.Events.ANY_KEY_UP, this.handleCodingKeyUp, this);
     }
 
     private handleCodingKeyDown (event: KeyboardEvent): void {
         if((event.code==='Enter'||event.code==='Escape')&&this.guidanceOverlay){event.preventDefault();this.dismissGuidance();return;}
         if(event.code==='KeyP'&&!event.repeat){event.preventDefault();this.toggleExplicitPause();return;}
-        if (event.code === 'Space') {
-            event.preventDefault();
-            this.beginCodingSource('keyboard:Space');
-        }
+        if(event.repeat)return;
+        if(event.code==='Digit1'||event.code==='Space'){event.preventDefault();this.activateAiPrimary('prompt');}
+        if(event.code==='Digit2'){event.preventDefault();this.activateAiPrimary('plan');}
+        if(event.code==='KeyR'){event.preventDefault();this.requestAiRevision();}
     }
 
-    private handleCodingKeyUp (event: KeyboardEvent): void {
-        if (event.code === 'Space') { this.lifecycle?.cancel('keyboard-cancel'); this.endCodingSource('keyboard:Space'); }
-    }
-
-    private beginCodingSource (source: string): void {
-        if (this.interruptions?.snapshot.openInterruption || this.taskQueue?.snapshot.pendingDecision) return;
-        this.synchronizeCodingAvailability();
-        if (!this.coding.snapshot.isAvailable || this.heldCodingSources.has(source) || this.blockedCodingSources.has(source)) return;
-        this.heldCodingSources.add(source);
-        this.coding.requestCoding(true);
-    }
-
-    private endCodingSource (source: string): void {
-        this.blockedCodingSources.delete(source);
-        if (!this.heldCodingSources.delete(source)) return;
-        this.coding.requestCoding(this.heldCodingSources.size > 0);
-    }
-
-    private releasePointerSource (pointer: Input.Pointer): void {
-        this.endCodingSource(`pointer:${pointer.id}`);
-    }
-
-    private handlePointerCancel():void{this.lifecycle?.cancel('pointer-cancel');}
+    private activateAiPrimary(mode:'prompt'|'plan'):void{const ai=this.session.ai.snapshot,task=this.taskQueue.snapshot.selectedTask;if(ai.phase==='review'&&ai.batch){const result=this.session.ai.approve({taskId:ai.batch.taskId,cycleId:ai.batch.cycleId,batchId:ai.batch.id});if(result.accepted&&result.batch){const work=this.taskQueue.applyWork(result.batch.proposedWork);if(work.completionEffects.length)this.effectEngine.execute(work.completionEffects,work.completedTaskId!);if(result.batch.effects.length)this.effectEngine.execute(result.batch.effects as unknown as readonly Effect[],result.batch.id);if(work.decisionOpened)this.openTaskDecision();this.audio?.cue('choice',`approve:${result.batch.id}`);}}else if(task&&this.session.ai.start(mode,task.id))this.audio?.cue('choice',`start:${this.session.ai.snapshot.cycleId}`);this.renderCoding(this.coding.snapshot);}
+    private requestAiRevision():void{const ai=this.session.ai.snapshot;if(!ai.batch)return;const result=this.session.ai.revise({taskId:ai.batch.taskId,cycleId:ai.batch.cycleId,batchId:ai.batch.id});if(result.accepted){this.workday.mutateResource('stamina',-result.staminaCost);this.audio?.cue('choice',`revise:${ai.batch.id}`);this.renderCoding(this.coding.snapshot);}}
 
     private cancelInteraction(reason:InteractionCancelReason):void{
         this.heldCodingSources.forEach(source=>this.blockedCodingSources.add(source));
@@ -637,35 +681,21 @@ export class Workstation extends Scene {
     }
 
     private synchronizeCodingAvailability (): void {
-        const day = this.workday.snapshot;
-        this.coding.synchronizeAvailability(!day.isPaused && !day.isDayComplete, day.resources.stamina, Boolean(this.taskQueue.snapshot.selectedTask) && !this.taskQueue.snapshot.pendingDecision);
+        this.renderCoding(this.coding.snapshot);
     }
 
     private renderCoding (snapshot: CodingSessionSnapshot): void {
         const task=this.taskQueue.snapshot.selectedTask;
+        const ai=this.session.ai.snapshot;
         this.codingTaskText.setText(task?`${task.id}  ·  ${task.title.toUpperCase()}`:'ALL TASKS COMPLETE');
         this.codingProgressText.setText(task?`${task.progress.toFixed(1)}%`:'100%');
         this.codingProgressMeter.setValue(task?task.progress/100:1);
-        this.focusText.setText(`FOCUS  ×${snapshot.focusMultiplier.toFixed(2)}`);
-        this.audio?.setTyping(snapshot.isCoding,`typing:${this.taskQueue.snapshot.selectedTaskId??'none'}:${Math.floor(this.workday.snapshot.elapsedGameMs/1000)}`);
-        this.codingActionBackground.disableInteractive();
-        if (!snapshot.isAvailable) {
-            this.codingActionBackground.setFillStyle(COLORS.surfaceMuted).setStrokeStyle(2, COLORS.disabled).setAlpha(0.72);
-            this.codingActionLabel.setColor(COLORS.textMuted).setText('CODING UNAVAILABLE');
-            const day = this.workday.snapshot;
-            const reason = !task ? 'All tasks complete' : this.taskQueue.snapshot.pendingDecision ? 'Task decision open'
-                : this.disruptions.snapshot.effectiveSpeedFactor===0 ? (this.disruptions.snapshot.reason??'Tooling disruption')
-                : day.isDayComplete ? 'Workday complete' : day.isPaused ? 'Workday paused' : 'Stamina exhausted';
-            this.codingActionDetail.setText(reason);
-            return;
-        }
-        this.codingActionBackground.setInteractive({ useHandCursor: true });
-        this.codingActionLabel.setColor(COLORS.text).setText(snapshot.isCoding ? 'CODING…' : 'HOLD TO CODE');
-        const disruption=this.disruptions.snapshot;
-        this.codingActionDetail.setText(snapshot.isCoding ? (disruption.effectiveSpeedFactor<1?`Tooling slowdown · ${Math.round(disruption.effectiveSpeedFactor*100)}% speed`:'Keep holding to build Focus') : 'Pointer or Space');
-        this.codingActionBackground.setFillStyle(snapshot.isCoding ? COLORS.mint : COLORS.blue)
-            .setStrokeStyle(2, snapshot.isCoding ? 0xa4f2dc : 0x8ac5ff)
-            .setAlpha(1);
+        this.focusText.setText(`FOCUS · REVIEW EFFECTIVENESS ${Math.round(snapshot.focus*100)}%`);
+        this.audio?.stopTyping();this.codingActionBackground.disableInteractive();this.planActionBackground.disableInteractive();
+        if(ai.phase==='available'){const enabled=ai.isAvailable;this.codingActionLabel.setText(enabled?'PROMPT MODE':'AI WORK UNAVAILABLE');this.codingActionDetail.setText(enabled?'Fast · more uncertain':ai.disabledReason??'Unavailable');this.planActionLabel.setText('PLAN MODE');this.planActionDetail.setText(enabled?'Slower · safer':ai.disabledReason??'Unavailable');if(enabled){this.codingActionBackground.setInteractive({useHandCursor:true});this.planActionBackground.setInteractive({useHandCursor:true});}}
+        else if(ai.phase==='planning'||ai.phase==='generating'){const pct=Math.round(ai.progress*100);this.codingActionLabel.setText(`${ai.phase.toUpperCase()} · ${pct}%`);this.codingActionDetail.setText(`${ai.mode?.toUpperCase()} cycle · authoritative game time`);this.planActionLabel.setText('REVIEW PENDING');this.planActionDetail.setText('Wait for generation');}
+        else if(ai.batch){this.codingActionLabel.setText('APPROVE CHANGES');this.codingActionDetail.setText(`${ai.batch.proposedWork.toFixed(1)} work · ${ai.batch.changedFiles.length} files · ${ai.batch.tests.length} tests`);this.planActionLabel.setText('REQUEST CHANGES');this.planActionDetail.setText(`R · tier ${ai.batch.revisionTier}/${2} · ${ai.batch.signals.join(' ')||`${ai.batch.hiddenSignalCount} uncertainty`}`);this.codingActionBackground.setInteractive({useHandCursor:true});this.planActionBackground.setInteractive({useHandCursor:true});}
+        const enabled=ai.isAvailable||ai.phase==='review';this.codingActionBackground.setFillStyle(enabled?COLORS.blue:COLORS.surfaceMuted).setAlpha(enabled?1:.72);this.planActionBackground.setFillStyle(enabled?COLORS.surfaceRaised:COLORS.surfaceMuted).setAlpha(enabled?1:.72);
     }
 
     private cleanupWorkday (): void {
@@ -707,11 +737,7 @@ export class Workstation extends Scene {
         this.workday?.resume(TASK_DECISION_PAUSE_REASON);
         this.decisionOverlay?.destroy(true);
         this.decisionOverlay = undefined;
-        this.input?.off(Input.Events.POINTER_UP, this.releasePointerSource, this);
-        this.input?.off(Input.Events.POINTER_UP_OUTSIDE, this.releasePointerSource, this);
-        this.input?.off(Input.Events.GAME_OUT, this.handlePointerCancel, this);
         this.input?.keyboard?.off(Input.Keyboard.Events.ANY_KEY_DOWN, this.handleCodingKeyDown, this);
-        this.input?.keyboard?.off(Input.Keyboard.Events.ANY_KEY_UP, this.handleCodingKeyUp, this);
         this.game?.events.off(Core.Events.BLUR, this.onBrowserBlur, this);this.game?.events.off(Core.Events.FOCUS,this.onBrowserFocus,this);
         if(typeof document!=='undefined')document.removeEventListener('visibilitychange',this.onVisibilityChange);
         if(typeof window!=='undefined')window.removeEventListener('orientationchange',this.onOrientationChange);

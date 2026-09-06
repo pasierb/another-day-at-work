@@ -5,9 +5,15 @@ import { COLORS, DEPTH, INTERACTION, SPACE, SURFACE, TYPE } from './theme';
 export function panel(scene: Scene, region: Region, fill: number = COLORS.surface): GameObjects.Container {
     const root = scene.add.container(region.x, region.y).setDepth(DEPTH.panels);
     return root.add([
-        scene.add.rectangle(SURFACE.shadowX, SURFACE.shadowY, region.width, region.height, COLORS.shadow, SURFACE.shadowAlpha).setOrigin(0),
-        scene.add.rectangle(0, 0, region.width, region.height, fill, 0.98).setOrigin(0).setStrokeStyle(SURFACE.border, COLORS.border)
+        roundedSurface(scene,SURFACE.shadowX,SURFACE.shadowY,region.width,region.height,COLORS.shadow,0,12,SURFACE.shadowAlpha),
+        roundedSurface(scene,0,0,region.width,region.height,fill,COLORS.border,10,.98,SURFACE.border)
     ]);
+}
+
+export function roundedSurface(scene:Scene,x:number,y:number,width:number,height:number,fill:number,stroke:number,radius=8,alpha=1,strokeWidth=1):GameObjects.Graphics{
+    const graphics=scene.add.graphics();graphics.fillStyle(fill,alpha).fillRoundedRect(x,y,width,height,radius);
+    if(strokeWidth>0)graphics.lineStyle(strokeWidth,stroke,1).strokeRoundedRect(x,y,width,height,radius);
+    return graphics;
 }
 
 export function heading(scene: Scene, parent: GameObjects.Container, label: string, x: number = SPACE.md, y: number = SPACE.md): GameObjects.Text {
@@ -32,10 +38,12 @@ export interface MeterView {
     readonly fill: GameObjects.Rectangle;
     setValue(value: number): void;
 }
+export function card(scene:Scene,parent:GameObjects.Container,x:number,y:number,width:number,height:number,urgent=false):GameObjects.Rectangle{const view=scene.add.rectangle(x,y,width,height,urgent?0x4a2830:COLORS.surfaceRaised,.97).setOrigin(0).setStrokeStyle(urgent?SURFACE.urgentBorder:SURFACE.border,urgent?COLORS.danger:COLORS.border);parent.add(view);return view;}
+export function tab(scene:Scene,parent:GameObjects.Container,x:number,y:number,width:number,label:string,selected=false):GameObjects.Container{const root=scene.add.container(x,y);root.add([scene.add.rectangle(0,0,width,30,selected?COLORS.surfaceRaised:COLORS.surfaceMuted).setOrigin(0).setStrokeStyle(selected?3:1,selected?COLORS.selected:COLORS.border),scene.add.text(width/2,15,`${selected?'✓ ':' '}${label}`,{fontFamily:TYPE.family,fontSize:TYPE.small,color:COLORS.text,fontStyle:'bold'}).setOrigin(.5)]);parent.add(root);return root;}
 
 export function meter(scene: Scene, parent: GameObjects.Container, x: number, y: number, width: number, value: number, fillColor: number): MeterView {
     const root = scene.add.container(x, y);
-    root.add(scene.add.rectangle(0, 0, width, 10, COLORS.surfaceMuted).setOrigin(0).setStrokeStyle(1, COLORS.border));
+    root.add(roundedSurface(scene,0,0,width,10,COLORS.surfaceMuted,COLORS.border,5,1,1));
     const fill = scene.add.rectangle(2, 2, 0, 6, fillColor).setOrigin(0);
     root.add(fill);
     parent.add(root);
@@ -100,4 +108,24 @@ export function actionButton(scene: Scene, parent: GameObjects.Container, x: num
     };
     setEnabled(true);
     return { root, background, setEnabled, destroy: () => { background.off(Input.Events.GAMEOBJECT_POINTER_DOWN, down);background.off(Input.Events.GAMEOBJECT_POINTER_OVER,over);background.off(Input.Events.GAMEOBJECT_POINTER_OUT,out); scene.input.off(Input.Events.POINTER_UP, up); scene.input.off(Input.Events.POINTER_UP_OUTSIDE, up); root.destroy(true); } };
+}
+
+export function toolbarActionButton(scene:Scene,parent:GameObjects.Container,x:number,width:number,icon:string,label:string,detail:string,activate:()=>void):ActionView{
+    const root=scene.add.container(x,4),visual=scene.add.graphics(),background=scene.add.rectangle(0,0,width,54,0xffffff,0).setOrigin(0);
+    const iconPlate=roundedSurface(scene,7,7,34,40,0x27394a,0x657b8e,7);
+    const iconText=scene.add.text(24,27,icon,{fontFamily:TYPE.family,fontSize:18,color:'#ffffff'}).setOrigin(.5);
+    const labelText=scene.add.text(48,11,label,{fontFamily:TYPE.family,fontSize:10,color:COLORS.text,fontStyle:'bold'});
+    const detailText=scene.add.text(48,29,detail,{fontFamily:TYPE.family,fontSize:8,color:'#aebdca'});
+    root.add([visual,background,iconPlate,iconText,labelText,detailText]);parent.add(root);
+    let enabled=false,armedPointer:number|undefined;
+    const paint=(border:number,fill:number,alpha=1)=>{root.setAlpha(alpha);visual.clear().fillStyle(fill,.98).fillRoundedRect(0,0,width,54,9).lineStyle(2,border,1).strokeRoundedRect(0,0,width,54,9);};
+    const down=(pointer:Input.Pointer)=>{if(!enabled||armedPointer!==undefined)return;armedPointer=pointer.id;paint(COLORS.focus,0x243a4d,.88);activate();};
+    const up=(pointer:Input.Pointer)=>{if(armedPointer!==pointer.id)return;armedPointer=undefined;paint(enabled?COLORS.blue:COLORS.disabled,0x1b2836,enabled?1:SURFACE.disabledAlpha);};
+    const over=()=>{if(enabled&&armedPointer===undefined)paint(COLORS.focus,0x223549);};
+    const out=()=>{if(enabled&&armedPointer===undefined)paint(COLORS.blue,0x1b2836);};
+    background.on(Input.Events.GAMEOBJECT_POINTER_DOWN,down).on(Input.Events.GAMEOBJECT_POINTER_OVER,over).on(Input.Events.GAMEOBJECT_POINTER_OUT,out);
+    scene.input.on(Input.Events.POINTER_UP,up);scene.input.on(Input.Events.POINTER_UP_OUTSIDE,up);
+    const setEnabled=(next:boolean,nextDetail=detail)=>{enabled=next;armedPointer=undefined;background.disableInteractive();if(enabled)background.setInteractive({useHandCursor:true});paint(enabled?COLORS.blue:COLORS.disabled,0x1b2836,enabled?1:SURFACE.disabledAlpha);labelText.setColor(enabled?COLORS.text:COLORS.textMuted);detailText.setColor(enabled?'#aebdca':'#7b8790').setText(nextDetail);iconPlate.setAlpha(enabled?1:.55);};
+    setEnabled(true);
+    return{root,background,setEnabled,destroy:()=>{background.off(Input.Events.GAMEOBJECT_POINTER_DOWN,down).off(Input.Events.GAMEOBJECT_POINTER_OVER,over).off(Input.Events.GAMEOBJECT_POINTER_OUT,out);scene.input.off(Input.Events.POINTER_UP,up);scene.input.off(Input.Events.POINTER_UP_OUTSIDE,up);root.destroy(true);}};
 }

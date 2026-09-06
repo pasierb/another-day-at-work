@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Claude">
+  <g fill="#d97757">
+    <rect x="58" y="8" width="12" height="46" rx="6"/><rect x="58" y="74" width="12" height="46" rx="6"/>
+    <rect x="8" y="58" width="46" height="12" rx="6"/><rect x="74" y="58" width="46" height="12" rx="6"/>
+    <rect x="21" y="29" width="46" height="12" rx="6" transform="rotate(45 44 35)"/><rect x="61" y="87" width="46" height="12" rx="6" transform="rotate(45 84 93)"/>
+    <rect x="61" y="29" width="46" height="12" rx="6" transform="rotate(-45 84 35)"/><rect x="21" y="87" width="46" height="12" rx="6" transform="rotate(-45 44 93)"/>
+    <circle cx="64" cy="64" r="10"/>
+  </g>
+</svg>

@@ -28,11 +28,11 @@ npm run smoke:headed     # same browser suite with a visible browser
 
 ## Controls
 
-- Mouse or touch: hold the blue **Hold to Code** control. Release to stop. Select tasks, alerts, decisions, Coffee, Coke Zero, Toilet, Pause, Mute, and Restart through visible controls.
-- Keyboard: hold `Space` to code, press `P` to pause/resume, and press `Enter` to restart from results.
+- Mouse or touch: choose **Prompt Mode** for faster, smaller batches or **Plan Mode** for slower, safer batches. Review the file, test, and concern evidence, then approve or request changes.
+- Keyboard: press `1` or `Space` for Prompt Mode, `2` for Plan Mode, `R` to request changes during review, `P` to pause/resume, and `Enter` to restart from results.
 - First run: a blocking orientation card explains the objective, coding, alerts, and resources. Dismiss it with its button, `Enter`, or `Escape`. Its versioned preference is stored locally; storage failure only makes it session-local.
 
-Changing tabs, losing browser focus, resizing, or changing orientation cancels held coding. Coding never resumes until a fresh press after active play returns. Visibility pause, first-run guidance, explicit pause, and decision pauses have independent ownership.
+Generation advances only through unpaused game time. Visibility pause, first-run guidance, explicit pause, and decision pauses have independent ownership; a review batch remains stable while an interruption is handled.
 
 ## Test mode
 
