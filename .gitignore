@@ -11,6 +11,7 @@ node_modules
 dist
 dist-ssr
 .playtest
+playtest-results
 *.local
 
 # Editor directories and files

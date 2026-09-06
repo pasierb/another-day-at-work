@@ -18,11 +18,18 @@ import { WorkdaySession } from '../domain/WorkdaySession';
 import { DEVELOPER_PACING_PROFILE,NORMAL_PACING_PROFILE } from '../domain/WorkdayPacing';
 import { derivePresentationState } from '../presentation/PresentationState';
 import { gameAudio, SceneAudioDirector } from '../audio/GameAudio';
+import { browserGuidanceStorage, GuidancePreference } from '../presentation/GuidancePreference';
+import { createGuidanceOverlay, type GuidanceOverlayView } from '../presentation/GuidanceOverlay';
+import { InteractionLifecycle, type InteractionCancelReason } from '../presentation/InteractionLifecycle';
+import { installWorkstationDiagnostics } from '../presentation/PlaytestDiagnostics';
 
 const textStyle = { fontFamily: TYPE.family, fontSize: TYPE.body, color: COLORS.text } as const;
 const mutedStyle = { fontFamily: TYPE.family, fontSize: TYPE.small, color: COLORS.textMuted } as const;
 const DECISION_PAUSE_REASON = 'interruption-decision';
 const TASK_DECISION_PAUSE_REASON = 'task-decision';
+const GUIDANCE_PAUSE_REASON = 'first-run-guidance';
+const VISIBILITY_PAUSE_REASON = 'browser-visibility';
+const EXPLICIT_PAUSE_REASON = 'player-pause';
 const TASK_SWITCH_FOCUS_COST = 0.2;
 const severityColors = { low: COLORS.mint, medium: COLORS.amber, high: COLORS.danger, critical: COLORS.danger } as const;
 const severityRanks = { low: 0, medium: 1, high: 2, critical: 3 } as const;
@@ -76,6 +83,8 @@ export class Workstation extends Scene {
     private decor?:GameObjects.Container;private stressText?:GameObjects.Text;private muteText?:GameObjects.Text;
     private audio?:SceneAudioDirector;private detachAudio?:()=>void;private unsubscribeAudio?:()=>void;
     private knownAlerts=new Set<string>();private initializedAlerts=false;private criticalNeeds=new Set<NeedId>();
+    private guidancePreference?:GuidancePreference;private guidanceOverlay?:GuidanceOverlayView;private guidanceDismissed=false;
+    private lifecycle?:InteractionLifecycle;private removeDiagnostics?:()=>void;private pauseText?:GameObjects.Text;
 
     constructor () { super('Workstation'); }
 
@@ -89,7 +98,7 @@ export class Workstation extends Scene {
         this.workday=this.session.workday;this.coding=this.session.coding;this.taskQueue=this.session.taskQueue;this.playerNeeds=this.session.playerNeeds;this.boosters=this.session.boosters;this.interruptions=this.session.interruptions;this.scheduler=this.session.scheduler;this.consequenceQueue=this.session.consequenceQueue;this.disruptions=this.session.disruptions;this.effectEngine=this.session.effectEngine;
         this.cameras.main.setBackgroundColor(COLORS.backdrop);
         this.buildBackdrop();
-        this.audio=new SceneAudioDirector(this.sound);this.detachAudio=gameAudio.attach(this.sound);this.buildMuteControl();
+        this.audio=new SceneAudioDirector(this.sound);this.detachAudio=gameAudio.attach(this.sound);this.buildMuteControl();this.buildPauseControl();
         this.buildResourceHud();
         this.buildDayClock();
         this.buildTasks();
@@ -110,6 +119,10 @@ export class Workstation extends Scene {
         this.unsubscribeInterruptions = this.interruptions.subscribe(snapshot => this.renderInterruptions(snapshot));
         this.unsubscribeNeeds = this.playerNeeds.subscribe(snapshot => this.renderNeeds(snapshot));
         this.bindCodingInput();
+        this.bindLifecycle();
+        this.guidancePreference=new GuidancePreference(browserGuidanceStorage());
+        if(!this.guidancePreference.dismissed)this.openGuidance();
+        this.removeDiagnostics=installWorkstationDiagnostics(this,()=>Boolean(this.guidanceOverlay));
         this.advancesWorkday = true;
         this.events.once(Scenes.Events.SHUTDOWN, this.cleanupWorkday, this);
         this.events.once(Scenes.Events.DESTROY, this.cleanupWorkday, this);
@@ -141,6 +154,8 @@ export class Workstation extends Scene {
     }
 
     private buildMuteControl():void{const bg=this.add.rectangle(1144,684,112,28,COLORS.surfaceMuted).setOrigin(0).setStrokeStyle(2,COLORS.borderStrong).setDepth(DEPTH.controls).setInteractive({useHandCursor:true});this.muteText=this.add.text(1200,698,'',{fontFamily:TYPE.family,fontSize:TYPE.small,color:COLORS.text,fontStyle:'bold'}).setOrigin(.5).setDepth(DEPTH.controls);bg.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>gameAudio.toggle());this.unsubscribeAudio=gameAudio.subscribe(()=>{this.audio?.sync();this.muteText?.setText(gameAudio.muted?'× SOUND MUTED':'♪ SOUND ON');});}
+
+    private buildPauseControl():void{const bg=this.add.rectangle(1030,684,104,28,COLORS.surfaceMuted).setOrigin(0).setStrokeStyle(2,COLORS.borderStrong).setDepth(DEPTH.controls).setInteractive({useHandCursor:true});this.pauseText=this.add.text(1082,698,'Ⅱ PAUSE',{fontFamily:TYPE.family,fontSize:TYPE.small,color:COLORS.text,fontStyle:'bold'}).setOrigin(.5).setDepth(DEPTH.controls);bg.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.toggleExplicitPause());}
 
     private renderPresentation():void{if(!this.decor)return;const state=derivePresentationState({dayProgress:this.workday.snapshot.dayProgress,technicalDebt:this.workday.snapshot.resources.technicalDebt,activeAlerts:this.interruptions.snapshot.active});this.stressText?.setText(`DESK STATUS · ${state.stage.toUpperCase()}`);const slots=[{x:306,y:26,w:48,h:32,label:'NOTE'},{x:902,y:74,w:42,h:22,label:'TODO'},{x:1190,y:112,w:54,h:12,label:'MAIL'},{x:18,y:648,w:58,h:22,label:'DRAFT'},{x:1050,y:650,w:70,h:18,label:'LATE'},{x:770,y:704,w:92,h:9,label:'CABLE'}];this.decor.list.slice(1).forEach(child=>child.destroy());slots.slice(0,state.clutterLevel*2).forEach((slot,index)=>{const note=this.add.rectangle(slot.x,slot.y,slot.w,slot.h,index%2?0xc99e52:0xd4c591,.9).setOrigin(0).setAngle(index%2?3:-2);const label=this.add.text(slot.x+slot.w/2,slot.y+slot.h/2,slot.label,{fontFamily:TYPE.family,fontSize:8,color:'#332a22',fontStyle:'bold'}).setOrigin(.5).setAngle(note.angle);this.decor!.add([note,label]);});}
 
@@ -551,13 +566,14 @@ export class Workstation extends Scene {
         });
         this.input.on(Input.Events.POINTER_UP, this.releasePointerSource, this);
         this.input.on(Input.Events.POINTER_UP_OUTSIDE, this.releasePointerSource, this);
-        this.input.on(Input.Events.GAME_OUT, this.clearPointerSources, this);
+        this.input.on(Input.Events.GAME_OUT, this.handlePointerCancel, this);
         this.input.keyboard?.on(Input.Keyboard.Events.ANY_KEY_DOWN, this.handleCodingKeyDown, this);
         this.input.keyboard?.on(Input.Keyboard.Events.ANY_KEY_UP, this.handleCodingKeyUp, this);
-        this.game.events.on(Core.Events.BLUR, this.clearHeldCodingSources, this);
     }
 
     private handleCodingKeyDown (event: KeyboardEvent): void {
+        if((event.code==='Enter'||event.code==='Escape')&&this.guidanceOverlay){event.preventDefault();this.dismissGuidance();return;}
+        if(event.code==='KeyP'&&!event.repeat){event.preventDefault();this.toggleExplicitPause();return;}
         if (event.code === 'Space') {
             event.preventDefault();
             this.beginCodingSource('keyboard:Space');
@@ -565,7 +581,7 @@ export class Workstation extends Scene {
     }
 
     private handleCodingKeyUp (event: KeyboardEvent): void {
-        if (event.code === 'Space') this.endCodingSource('keyboard:Space');
+        if (event.code === 'Space') { this.lifecycle?.cancel('keyboard-cancel'); this.endCodingSource('keyboard:Space'); }
     }
 
     private beginCodingSource (source: string): void {
@@ -586,15 +602,28 @@ export class Workstation extends Scene {
         this.endCodingSource(`pointer:${pointer.id}`);
     }
 
-    private clearPointerSources (): void {
-        for (const source of this.blockedCodingSources) {
-            if (source.startsWith('pointer:')) this.blockedCodingSources.delete(source);
-        }
-        for (const source of this.heldCodingSources) {
-            if (source.startsWith('pointer:')) this.heldCodingSources.delete(source);
-        }
-        this.coding.requestCoding(this.heldCodingSources.size > 0);
+    private handlePointerCancel():void{this.lifecycle?.cancel('pointer-cancel');}
+
+    private cancelInteraction(reason:InteractionCancelReason):void{
+        this.heldCodingSources.forEach(source=>this.blockedCodingSources.add(source));
+        this.clearHeldCodingSources();this.audio?.stopTyping();
+        if(reason==='focus'||reason==='visible'||reason==='restart'||reason==='shutdown')this.blockedCodingSources.clear();
     }
+
+    private bindLifecycle():void{
+        this.lifecycle=new InteractionLifecycle({cancelInteraction:reason=>this.cancelInteraction(reason),pause:owner=>this.workday.pause(owner==='visibility'?VISIBILITY_PAUSE_REASON:owner==='guidance'?GUIDANCE_PAUSE_REASON:EXPLICIT_PAUSE_REASON),resume:owner=>this.workday.resume(owner==='visibility'?VISIBILITY_PAUSE_REASON:owner==='guidance'?GUIDANCE_PAUSE_REASON:EXPLICIT_PAUSE_REASON)});
+        this.game.events.on(Core.Events.BLUR,this.onBrowserBlur,this);this.game.events.on(Core.Events.FOCUS,this.onBrowserFocus,this);
+        document.addEventListener('visibilitychange',this.onVisibilityChange);window.addEventListener('orientationchange',this.onOrientationChange);
+        this.scale.on('resize',this.onViewportResize,this);
+    }
+    private onBrowserBlur=():void=>{this.lifecycle?.cancel('blur');};
+    private onBrowserFocus=():void=>{this.input.resetPointers();this.input.keyboard?.resetKeys();this.lifecycle?.cancel('focus');};
+    private onVisibilityChange=():void=>{const hidden=document.visibilityState==='hidden';this.lifecycle?.cancel(hidden?'hidden':'visible');this.lifecycle?.setPaused('visibility',hidden);if(!hidden){this.input.resetPointers();this.input.keyboard?.resetKeys();}};
+    private onViewportResize=():void=>{this.lifecycle?.cancel('resize');};
+    private onOrientationChange=():void=>{this.lifecycle?.cancel('orientation');};
+    private toggleExplicitPause():void{if(this.guidanceOverlay||this.resultsStarted)return;const paused=this.workday.snapshot.pauseReasons.includes(EXPLICIT_PAUSE_REASON);this.lifecycle?.cancel('overlay');this.lifecycle?.setPaused('explicit',!paused);this.pauseText?.setText(paused?'Ⅱ PAUSE':'▶ RESUME');this.synchronizeCodingAvailability();}
+    private openGuidance():void{this.lifecycle?.cancel('overlay');this.lifecycle?.setPaused('guidance',true);this.guidanceDismissed=false;this.guidanceOverlay=createGuidanceOverlay(this,()=>this.dismissGuidance());this.synchronizeCodingAvailability();}
+    private dismissGuidance():void{if(!this.guidanceOverlay||this.guidanceDismissed)return;this.guidanceDismissed=true;this.lifecycle?.cancel('overlay');this.guidancePreference?.dismiss();this.guidanceOverlay.destroy();this.guidanceOverlay=undefined;this.lifecycle?.setPaused('guidance',false);this.input.resetPointers();this.input.keyboard?.resetKeys();this.blockedCodingSources.clear();this.synchronizeCodingAvailability();}
 
     private clearHeldCodingSources (): void {
         if (this.heldCodingSources.size === 0 && !this.coding?.snapshot.isCodingRequested) return;
@@ -641,6 +670,9 @@ export class Workstation extends Scene {
 
     private cleanupWorkday (): void {
         this.advancesWorkday = false;
+        this.removeDiagnostics?.();this.removeDiagnostics=undefined;
+        this.guidanceOverlay?.destroy();this.guidanceOverlay=undefined;this.guidancePreference=undefined;
+        this.lifecycle?.dispose();this.lifecycle=undefined;
         this.audio?.dispose();this.audio=undefined;this.detachAudio?.();this.detachAudio=undefined;this.unsubscribeAudio?.();this.unsubscribeAudio=undefined;this.knownAlerts.clear();this.initializedAlerts=false;this.criticalNeeds.clear();
         this.unsubscribeWorkday?.();
         this.unsubscribeWorkday = undefined;
@@ -677,12 +709,15 @@ export class Workstation extends Scene {
         this.decisionOverlay = undefined;
         this.input?.off(Input.Events.POINTER_UP, this.releasePointerSource, this);
         this.input?.off(Input.Events.POINTER_UP_OUTSIDE, this.releasePointerSource, this);
-        this.input?.off(Input.Events.GAME_OUT, this.clearPointerSources, this);
+        this.input?.off(Input.Events.GAME_OUT, this.handlePointerCancel, this);
         this.input?.keyboard?.off(Input.Keyboard.Events.ANY_KEY_DOWN, this.handleCodingKeyDown, this);
         this.input?.keyboard?.off(Input.Keyboard.Events.ANY_KEY_UP, this.handleCodingKeyUp, this);
-        this.game?.events.off(Core.Events.BLUR, this.clearHeldCodingSources, this);
+        this.game?.events.off(Core.Events.BLUR, this.onBrowserBlur, this);this.game?.events.off(Core.Events.FOCUS,this.onBrowserFocus,this);
+        if(typeof document!=='undefined')document.removeEventListener('visibilitychange',this.onVisibilityChange);
+        if(typeof window!=='undefined')window.removeEventListener('orientationchange',this.onOrientationChange);
+        this.scale?.off('resize',this.onViewportResize,this);
         this.events.off(Scenes.Events.SHUTDOWN, this.cleanupWorkday, this);
         this.events.off(Scenes.Events.DESTROY, this.cleanupWorkday, this);
     }
-    private enterResultsIfComplete():void{if(this.resultsStarted||!this.workday.snapshot.isDayComplete)return;const result=this.session.finalize();if(!result)return;this.resultsStarted=true;this.advancesWorkday=false;this.cancelHeldCodingForDecision();this.input.enabled=false;this.scene.start('Results',{result});}
+    private enterResultsIfComplete():void{if(this.resultsStarted||!this.workday.snapshot.isDayComplete)return;const result=this.session.finalize();if(!result)return;this.resultsStarted=true;this.advancesWorkday=false;const runId=window.__WORKDAY_PLAYTEST__?.getSnapshot().runId;this.lifecycle?.cancel('results');this.input.enabled=false;this.scene.start('Results',{result,runId});}
 }

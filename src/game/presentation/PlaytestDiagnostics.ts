@@ -1,0 +1,24 @@
+import type { Workstation } from '../scenes/Workstation';
+
+export interface PlaytestMilestones {
+    readonly runId: number; readonly scene: 'workstation' | 'results'; readonly booted: boolean;
+    readonly clock: string; readonly elapsedGameMs: number; readonly paused: boolean;
+    readonly pauseReasons: readonly string[]; readonly activeInterruptionIds: readonly string[];
+    readonly resolvedInterruptionIds: readonly string[]; readonly completedTaskIds: readonly string[];
+    readonly codingRequested: boolean; readonly guidanceVisible: boolean; readonly terminal: boolean;
+}
+declare global { interface Window { __WORKDAY_PLAYTEST__?: Readonly<{ readonly getSnapshot: () => PlaytestMilestones }>; } }
+let nextRunId = 1;
+export function playtestDiagnosticsEnabled (): boolean { try { return new URLSearchParams(window.location.search).get('playtest') === '1'; } catch { return false; } }
+export function installWorkstationDiagnostics (scene: Workstation, guidanceVisible: () => boolean): () => void {
+    if (!playtestDiagnosticsEnabled()) return () => {};
+    const runId = nextRunId++;
+    const getSnapshot = (): PlaytestMilestones => { const day=scene.workday.snapshot,intr=scene.interruptions.snapshot,tasks=scene.taskQueue.snapshot;return Object.freeze({runId,scene:'workstation',booted:true,clock:`${String(day.clockHour).padStart(2,'0')}:${String(day.clockMinute).padStart(2,'0')}`,elapsedGameMs:day.elapsedGameMs,paused:day.isPaused,pauseReasons:Object.freeze([...day.pauseReasons]),activeInterruptionIds:Object.freeze(intr.active.map(x=>x.id)),resolvedInterruptionIds:Object.freeze([...intr.resolvedIds]),completedTaskIds:Object.freeze([...tasks.completedTaskIds]),codingRequested:scene.coding.snapshot.isCodingRequested,guidanceVisible:guidanceVisible(),terminal:day.isDayComplete}); };
+    window.__WORKDAY_PLAYTEST__=Object.freeze({getSnapshot});
+    return ()=>{if(window.__WORKDAY_PLAYTEST__?.getSnapshot===getSnapshot)delete window.__WORKDAY_PLAYTEST__;};
+}
+export function installResultsDiagnostics (runId: number, completedTaskIds: readonly string[], resolvedInterruptionIds: readonly string[]): () => void {
+    if (!playtestDiagnosticsEnabled()) return () => {};
+    const getSnapshot=():PlaytestMilestones=>Object.freeze({runId,scene:'results',booted:true,clock:'17:00',elapsedGameMs:28_800_000,paused:false,pauseReasons:Object.freeze([]),activeInterruptionIds:Object.freeze([]),resolvedInterruptionIds:Object.freeze([...resolvedInterruptionIds]),completedTaskIds:Object.freeze([...completedTaskIds]),codingRequested:false,guidanceVisible:false,terminal:true});
+    window.__WORKDAY_PLAYTEST__=Object.freeze({getSnapshot});return()=>{if(window.__WORKDAY_PLAYTEST__?.getSnapshot===getSnapshot)delete window.__WORKDAY_PLAYTEST__;};
+}

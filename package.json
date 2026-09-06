@@ -7,10 +7,13 @@
   "scripts": {
     "dev": "vite --config vite/config.dev.mjs",
     "build": "vite build --config vite/config.prod.mjs",
+    "build:smoke": "VITE_PACING_PROFILE=developer vite build --config vite/config.prod.mjs",
     "implement:chunks": "bash scripts/implement-chunks.sh",
     "preview": "vite preview --config vite/config.prod.mjs --logLevel info",
-    "test": "tsx --test test/**/*.test.ts"
-    ,"balance": "tsx scripts/run-balance-matrix.ts"
+    "test": "tsx --test test/**/*.test.ts",
+    "balance": "tsx scripts/run-balance-matrix.ts",
+    "smoke": "playwright test",
+    "smoke:headed": "playwright test --headed"
   },
   "devDependencies": {
     "playwright": "^1.63.0",

@@ -1,17 +1,41 @@
 # Another Day at Work
 
-A Phaser 4 workstation survival game. The current build opens directly into a responsive, static workstation shell that establishes the interface for later gameplay systems.
+A Phaser 4 workstation-survival game. Ship engineering tasks from 09:00 to 17:00 while handling production incidents, tooling failures, scope requests, teammate interruptions, personal needs, delayed consequences, and technical debt. Your decisions, completed work, resources, and incident handling determine the end-of-day score and ending.
 
-## Commands
+## Requirements and commands
 
-- `npm install` installs dependencies.
-- `npm run dev` starts the Vite development server on port 8080.
-- `npm run build` creates a production build in `dist`.
+Use a current Node.js LTS release (Node 22 or newer) and npm. From a fresh checkout, the committed lockfile is authoritative:
 
-## Structure
+```bash
+npm ci
+npx playwright install chromium
+npm run dev
+```
 
-- `src/game/main.ts` configures Phaser and its 1280×720 logical canvas.
-- `src/game/scenes` contains the loading and workstation scenes.
-- `src/game/ui` contains shared theme, layout, and presentation primitives.
-- `public/style.css` hosts and letterboxes the canvas.
-- `docs` contains the game design and visual reference.
+The supported local workflow is:
+
+```bash
+npm test                 # complete Node unit/integration suite
+npm run balance          # fixed-seed balance matrix
+npx tsc --noEmit         # strict TypeScript check
+npm run build            # production bundle in dist/
+npm run preview          # serve the production bundle
+npm run smoke            # build, preview, and run Chromium smoke tests
+npm run smoke:headed     # same browser suite with a visible browser
+```
+
+`npm run smoke` builds the production-equivalent accelerated profile, starts the preview server itself, and writes failure screenshots, traces, and the HTML report under `playtest-results/`. It fails on uncaught page or console errors, failed required requests, an unusable canvas, stale held input, and missing milestones. Audio files are optional presentation assets: both MP3 and OGG variants are supplied, and an unavailable or locked audio backend must not block play.
+
+## Controls
+
+- Mouse or touch: hold the blue **Hold to Code** control. Release to stop. Select tasks, alerts, decisions, Coffee, Coke Zero, Toilet, Pause, Mute, and Restart through visible controls.
+- Keyboard: hold `Space` to code, press `P` to pause/resume, and press `Enter` to restart from results.
+- First run: a blocking orientation card explains the objective, coding, alerts, and resources. Dismiss it with its button, `Enter`, or `Escape`. Its versioned preference is stored locally; storage failure only makes it session-local.
+
+Changing tabs, losing browser focus, resizing, or changing orientation cancels held coding. Coding never resumes until a fresh press after active play returns. Visibility pause, first-run guidance, explicit pause, and decision pauses have independent ownership.
+
+## Test mode
+
+The smoke build uses `VITE_PACING_PROFILE=developer` and opens `?playtest=1`. That explicit query setting exposes a local, read-only `window.__WORKDAY_PLAYTEST__.getSnapshot()` milestone view for boot, clock, pause ownership, interruptions, task completion, terminal results, and run identity. It cannot mutate gameplay, renders no diagnostic overlay, sends no analytics, and is absent in a normal run. The developer pacing profile accelerates time without changing content, balance rules, scoring, or seeded ordering.
+
+See [docs/manual-playtest.md](docs/manual-playtest.md) for the release-oriented manual scenario.

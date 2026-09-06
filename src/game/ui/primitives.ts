@@ -10,7 +10,7 @@ export function panel(scene: Scene, region: Region, fill: number = COLORS.surfac
     ]);
 }
 
-export function heading(scene: Scene, parent: GameObjects.Container, label: string, x = SPACE.md, y = SPACE.md): GameObjects.Text {
+export function heading(scene: Scene, parent: GameObjects.Container, label: string, x: number = SPACE.md, y: number = SPACE.md): GameObjects.Text {
     const text = scene.add.text(x, y, label.toUpperCase(), {
         fontFamily: TYPE.family, fontSize: TYPE.heading, color: COLORS.text, fontStyle: 'bold', letterSpacing: 1
     });
