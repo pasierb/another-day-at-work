@@ -1,12 +1,12 @@
 import { GameObjects, Input, Scene } from 'phaser';
 import type { Region } from './layout';
-import { COLORS, DEPTH, SPACE, TYPE } from './theme';
+import { COLORS, DEPTH, INTERACTION, SPACE, SURFACE, TYPE } from './theme';
 
 export function panel(scene: Scene, region: Region, fill: number = COLORS.surface): GameObjects.Container {
     const root = scene.add.container(region.x, region.y).setDepth(DEPTH.panels);
     return root.add([
-        scene.add.rectangle(4, 5, region.width, region.height, 0x000000, 0.28).setOrigin(0),
-        scene.add.rectangle(0, 0, region.width, region.height, fill, 0.97).setOrigin(0).setStrokeStyle(1, COLORS.border)
+        scene.add.rectangle(SURFACE.shadowX, SURFACE.shadowY, region.width, region.height, COLORS.shadow, SURFACE.shadowAlpha).setOrigin(0),
+        scene.add.rectangle(0, 0, region.width, region.height, fill, 0.98).setOrigin(0).setStrokeStyle(SURFACE.border, COLORS.border)
     ]);
 }
 
@@ -66,19 +66,22 @@ export function actionButton(scene: Scene, parent: GameObjects.Container, x: num
     label: string, detail: string, activate: () => void): ActionView {
     const root = scene.add.container(x, y);
     const background = scene.add.rectangle(0, 0, width, 42, COLORS.blue).setOrigin(0).setStrokeStyle(1, 0x8ac5ff);
-    const labelText = scene.add.text(width / 2, 12, label, { fontFamily: TYPE.family, fontSize: TYPE.body, color: COLORS.text, fontStyle: 'bold' }).setOrigin(0.5);
+    const labelText = scene.add.text(width / 2, 12, `› ${label}`, { fontFamily: TYPE.family, fontSize: TYPE.body, color: COLORS.text, fontStyle: 'bold' }).setOrigin(0.5);
     const detailText = scene.add.text(width / 2, 29, detail, { fontFamily: TYPE.family, fontSize: TYPE.small, color: COLORS.text }).setOrigin(0.5);
     root.add([background, labelText, detailText]);
     parent.add(root);
     let enabled = false;
     let armedPointer: number | undefined;
+    const paint=(state:keyof typeof INTERACTION)=>{const token=INTERACTION[state];root.setAlpha(token.alpha);background.setStrokeStyle(state==='selected'||state==='urgent'?3:2,token.border);labelText.setText(`${token.prefix} ${label}`);};
     const down = (pointer: Input.Pointer) => {
         if (!enabled || armedPointer !== undefined) return;
-        armedPointer = pointer.id;
+        armedPointer = pointer.id;paint('pressed');
         activate();
     };
-    const up = (pointer: Input.Pointer) => { if (armedPointer === pointer.id) armedPointer = undefined; };
+    const up = (pointer: Input.Pointer) => { if (armedPointer === pointer.id){armedPointer=undefined;paint(enabled?'enabled':'disabled');} };
+    const over=()=>{if(enabled&&armedPointer===undefined)paint('hover');};const out=()=>{if(enabled&&armedPointer===undefined)paint('enabled');};
     background.on(Input.Events.GAMEOBJECT_POINTER_DOWN, down);
+    background.on(Input.Events.GAMEOBJECT_POINTER_OVER,over);background.on(Input.Events.GAMEOBJECT_POINTER_OUT,out);
     scene.input.on(Input.Events.POINTER_UP, up);
     scene.input.on(Input.Events.POINTER_UP_OUTSIDE, up);
     const setEnabled = (next: boolean, nextDetail = detail) => {
@@ -89,12 +92,12 @@ export function actionButton(scene: Scene, parent: GameObjects.Container, x: num
         enabled = next;
         armedPointer = undefined;
         background.disableInteractive();
-        if (enabled) background.setInteractive({ useHandCursor: true }).setFillStyle(COLORS.blue).setStrokeStyle(1, 0x8ac5ff);
-        else background.setFillStyle(COLORS.surfaceMuted).setStrokeStyle(1, COLORS.disabled);
-        root.setAlpha(enabled ? 1 : 0.62);
+        if (enabled) background.setInteractive({ useHandCursor: true }).setFillStyle(COLORS.blue);
+        else background.setFillStyle(COLORS.surfaceMuted);
+        paint(enabled?'enabled':'disabled');
         labelText.setColor(enabled ? COLORS.text : COLORS.textMuted);
         detailText.setColor(enabled ? COLORS.text : COLORS.textMuted).setText(nextDetail);
     };
     setEnabled(true);
-    return { root, background, setEnabled, destroy: () => { background.off(Input.Events.GAMEOBJECT_POINTER_DOWN, down); scene.input.off(Input.Events.POINTER_UP, up); scene.input.off(Input.Events.POINTER_UP_OUTSIDE, up); root.destroy(true); } };
+    return { root, background, setEnabled, destroy: () => { background.off(Input.Events.GAMEOBJECT_POINTER_DOWN, down);background.off(Input.Events.GAMEOBJECT_POINTER_OVER,over);background.off(Input.Events.GAMEOBJECT_POINTER_OUT,out); scene.input.off(Input.Events.POINTER_UP, up); scene.input.off(Input.Events.POINTER_UP_OUTSIDE, up); root.destroy(true); } };
 }

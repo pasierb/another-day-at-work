@@ -1,0 +1,7 @@
+export type StressStage = 'calm' | 'busy' | 'strained' | 'critical';
+export type AlertSeverity = 'low' | 'medium' | 'high' | 'critical';
+export interface PresentationInput { readonly dayProgress:number; readonly activeAlerts:readonly {readonly severity:AlertSeverity}[]; readonly technicalDebt:number }
+export interface PresentationState { readonly stage:StressStage;readonly score:number;readonly clutterLevel:0|1|2|3;readonly emphasis:'none'|'notice'|'strong'|'urgent';readonly alertPressure:number }
+const severityWeight:Record<AlertSeverity,number>={low:1,medium:2,high:3,critical:4};
+export const PRESENTATION_THRESHOLDS=Object.freeze({busy:2,strained:4,critical:6});
+export function derivePresentationState(input:PresentationInput):PresentationState{const progress=Math.min(1,Math.max(0,input.dayProgress));const debt=Math.min(100,Math.max(0,input.technicalDebt));const alertPressure=input.activeAlerts.reduce((sum,alert)=>sum+severityWeight[alert.severity],0);const score=(progress>=.75?2:progress>=.4?1:0)+(debt>=70?3:debt>=40?2:debt>=20?1:0)+(alertPressure>=7?3:alertPressure>=4?2:alertPressure>=2?1:0);const stage:StressStage=score>=6?'critical':score>=4?'strained':score>=2?'busy':'calm';const clutterLevel=({calm:0,busy:1,strained:2,critical:3}as const)[stage];const emphasis=({calm:'none',busy:'notice',strained:'strong',critical:'urgent'}as const)[stage];return Object.freeze({stage,score,clutterLevel,emphasis,alertPressure});}

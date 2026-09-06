@@ -16,6 +16,8 @@ import { actionButton, disabledAction, heading, meter, panel, type ActionView, t
 import { COLORS, DEPTH, TYPE } from '../ui/theme';
 import { WorkdaySession } from '../domain/WorkdaySession';
 import { DEVELOPER_PACING_PROFILE,NORMAL_PACING_PROFILE } from '../domain/WorkdayPacing';
+import { derivePresentationState } from '../presentation/PresentationState';
+import { gameAudio, SceneAudioDirector } from '../audio/GameAudio';
 
 const textStyle = { fontFamily: TYPE.family, fontSize: TYPE.body, color: COLORS.text } as const;
 const mutedStyle = { fontFamily: TYPE.family, fontSize: TYPE.small, color: COLORS.textMuted } as const;
@@ -71,6 +73,9 @@ export class Workstation extends Scene {
     private boosterFeedbackText?: GameObjects.Text;
     private bathroomInProgress = false;
     private resultsStarted=false;
+    private decor?:GameObjects.Container;private stressText?:GameObjects.Text;private muteText?:GameObjects.Text;
+    private audio?:SceneAudioDirector;private detachAudio?:()=>void;private unsubscribeAudio?:()=>void;
+    private knownAlerts=new Set<string>();private initializedAlerts=false;private criticalNeeds=new Set<NeedId>();
 
     constructor () { super('Workstation'); }
 
@@ -84,6 +89,7 @@ export class Workstation extends Scene {
         this.workday=this.session.workday;this.coding=this.session.coding;this.taskQueue=this.session.taskQueue;this.playerNeeds=this.session.playerNeeds;this.boosters=this.session.boosters;this.interruptions=this.session.interruptions;this.scheduler=this.session.scheduler;this.consequenceQueue=this.session.consequenceQueue;this.disruptions=this.session.disruptions;this.effectEngine=this.session.effectEngine;
         this.cameras.main.setBackgroundColor(COLORS.backdrop);
         this.buildBackdrop();
+        this.audio=new SceneAudioDirector(this.sound);this.detachAudio=gameAudio.attach(this.sound);this.buildMuteControl();
         this.buildResourceHud();
         this.buildDayClock();
         this.buildTasks();
@@ -129,10 +135,14 @@ export class Workstation extends Scene {
     }
 
     private buildBackdrop () {
-        this.add.rectangle(640, 360, 1280, 720, COLORS.backdrop).setDepth(DEPTH.background);
-        for (let x = 0; x < 1280; x += 64) this.add.line(0, 0, x, 0, x, 720, 0x1b2737, 0.22).setOrigin(0).setDepth(DEPTH.decoration);
-        this.add.text(24, 680, 'ANOTHER DAY AT WORK', { fontFamily: TYPE.family, fontSize: 13, color: '#526176', fontStyle: 'bold' }).setDepth(DEPTH.decoration);
+        this.add.rectangle(640,360,1280,720,COLORS.desk).setDepth(DEPTH.background);
+        this.add.rectangle(640,710,1280,20,COLORS.deskEdge).setDepth(DEPTH.background);
+        this.decor=this.add.container(0,0).setDepth(DEPTH.decoration);this.stressText=this.add.text(24,680,'',{fontFamily:TYPE.family,fontSize:11,color:'#c5ae99',fontStyle:'bold'});this.decor.add(this.stressText);
     }
+
+    private buildMuteControl():void{const bg=this.add.rectangle(1144,684,112,28,COLORS.surfaceMuted).setOrigin(0).setStrokeStyle(2,COLORS.borderStrong).setDepth(DEPTH.controls).setInteractive({useHandCursor:true});this.muteText=this.add.text(1200,698,'',{fontFamily:TYPE.family,fontSize:TYPE.small,color:COLORS.text,fontStyle:'bold'}).setOrigin(.5).setDepth(DEPTH.controls);bg.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>gameAudio.toggle());this.unsubscribeAudio=gameAudio.subscribe(()=>{this.audio?.sync();this.muteText?.setText(gameAudio.muted?'× SOUND MUTED':'♪ SOUND ON');});}
+
+    private renderPresentation():void{if(!this.decor)return;const state=derivePresentationState({dayProgress:this.workday.snapshot.dayProgress,technicalDebt:this.workday.snapshot.resources.technicalDebt,activeAlerts:this.interruptions.snapshot.active});this.stressText?.setText(`DESK STATUS · ${state.stage.toUpperCase()}`);const slots=[{x:306,y:26,w:48,h:32,label:'NOTE'},{x:902,y:74,w:42,h:22,label:'TODO'},{x:1190,y:112,w:54,h:12,label:'MAIL'},{x:18,y:648,w:58,h:22,label:'DRAFT'},{x:1050,y:650,w:70,h:18,label:'LATE'},{x:770,y:704,w:92,h:9,label:'CABLE'}];this.decor.list.slice(1).forEach(child=>child.destroy());slots.slice(0,state.clutterLevel*2).forEach((slot,index)=>{const note=this.add.rectangle(slot.x,slot.y,slot.w,slot.h,index%2?0xc99e52:0xd4c591,.9).setOrigin(0).setAngle(index%2?3:-2);const label=this.add.text(slot.x+slot.w/2,slot.y+slot.h/2,slot.label,{fontFamily:TYPE.family,fontSize:8,color:'#332a22',fontStyle:'bold'}).setOrigin(.5).setAngle(note.angle);this.decor!.add([note,label]);});}
 
     private buildResourceHud () {
         const root = panel(this, REGIONS.resourceHud);
@@ -222,6 +232,8 @@ export class Workstation extends Scene {
 
     private renderInterruptions (snapshot: InterruptionSessionSnapshot): void {
         if (!this.alertsContent) return;
+        if(this.initializedAlerts){snapshot.active.filter(item=>!this.knownAlerts.has(item.id)).forEach(item=>this.audio?.cue(severityRanks[item.severity]>=2?'incident':'message',`alert:${item.id}:${item.activationSequence}`));}else this.initializedAlerts=true;
+        this.knownAlerts=new Set(snapshot.active.map(item=>item.id));
         this.alertsCountText.setText(`${snapshot.active.length} ACTIVE  ·  ${this.scheduler?.snapshot.pendingCount ?? 0} PENDING`);
         this.alertsContent.removeAll(true);
         const ordered = [...snapshot.active].sort((a, b) => severityRanks[b.severity] - severityRanks[a.severity]
@@ -240,7 +252,7 @@ export class Workstation extends Scene {
             ignoreHit.on(Input.Events.GAMEOBJECT_POINTER_DOWN, () => { this.input.stopPropagation(); this.ignoreInterruption(event.id); });
             this.alertsContent.add([
                 background,
-                this.add.text(28, y + 10, event.category.replace('-', ' ').toUpperCase(), { ...mutedStyle, color: `#${color.toString(16).padStart(6, '0')}`, fontStyle: 'bold' }),
+                this.add.text(28, y + 10, `${event.severity==='critical'?'!!!':event.severity==='high'?'!!':event.severity==='medium'?'▲':'•'} ${event.category.replace('-', ' ').toUpperCase()}`, { ...mutedStyle, color: `#${color.toString(16).padStart(6, '0')}`, fontStyle: 'bold' }),
                 this.add.text(262, y + 10, `${event.severity.toUpperCase()} · ${event.ageGameMinutes}m`, mutedStyle).setOrigin(1, 0),
                 this.add.text(28, y + 34, event.title, { ...textStyle, fontStyle: 'bold' }),
                 this.add.text(28, y + 57, event.copy, { ...mutedStyle, wordWrap: { width: 226 }, lineSpacing: 2 }), postponeHit, ignoreHit, postpone, ignore
@@ -248,6 +260,7 @@ export class Workstation extends Scene {
         });
         if (snapshot.active.length === 0) this.alertsContent.add(this.add.text(16, 120, 'No active interruptions.', mutedStyle));
         this.renderDecision(snapshot.openInterruption);
+        this.renderPresentation();
     }
 
     private openDecision (interruptionId: string): void {
@@ -307,6 +320,7 @@ export class Workstation extends Scene {
     private resolveChoice (choiceId: string): void {
         const pending = this.interruptions.beginResolution(choiceId);
         if (!pending) return;
+        this.audio?.cue('choice',`choice:${pending.interruptionId}:${choiceId}`);
         this.workday.spendGameMinutes(pending.choice.gameMinutes);
         this.effectEngine.execute(pending.choice.effects,pending.interruptionId);
         this.interruptions.finalizeResolution(pending.interruptionId);
@@ -427,6 +441,7 @@ export class Workstation extends Scene {
     private activateBooster (id: BoosterId): void {
         const activation = this.boosters.activate(id, this.boosterContext());
         if (!activation.accepted || !activation.result) return;
+        this.audio?.cue('booster',`booster:${id}:${activation.result.consumptionCount}`);
         this.cancelHeldCodingForDecision();
         const result = activation.result;
         this.workday.mutateResource('stamina', result.staminaRestoration);
@@ -498,6 +513,7 @@ export class Workstation extends Scene {
         if (!this.needViews) return;
         (['sleepiness', 'toilet'] as const).forEach(id => {
             const need = snapshot[id];
+            const critical=need.severity>=1;if(critical&&!this.criticalNeeds.has(id))this.audio?.cue('criticalNeed',`need:${id}:${need.stage.id}`);if(critical)this.criticalNeeds.add(id);else this.criticalNeeds.delete(id);
             this.needViews[id].label.setText(`${need.label.toUpperCase()} · ${need.stage.label} · ${Math.round(need.value)}%`);
             this.needViews[id].meter.setValue(need.severity);
         });
@@ -517,6 +533,7 @@ export class Workstation extends Scene {
         this.renderPacingOverlay();
         this.updateToiletAvailability();
         this.updateBoosterAvailability();
+        this.renderPresentation();
     }
 
     private buildPacingOverlay():void{
@@ -601,6 +618,7 @@ export class Workstation extends Scene {
         this.codingProgressText.setText(task?`${task.progress.toFixed(1)}%`:'100%');
         this.codingProgressMeter.setValue(task?task.progress/100:1);
         this.focusText.setText(`FOCUS  ×${snapshot.focusMultiplier.toFixed(2)}`);
+        this.audio?.setTyping(snapshot.isCoding,`typing:${this.taskQueue.snapshot.selectedTaskId??'none'}:${Math.floor(this.workday.snapshot.elapsedGameMs/1000)}`);
         this.codingActionBackground.disableInteractive();
         if (!snapshot.isAvailable) {
             this.codingActionBackground.setFillStyle(COLORS.surfaceMuted).setStrokeStyle(2, COLORS.disabled).setAlpha(0.72);
@@ -623,6 +641,7 @@ export class Workstation extends Scene {
 
     private cleanupWorkday (): void {
         this.advancesWorkday = false;
+        this.audio?.dispose();this.audio=undefined;this.detachAudio?.();this.detachAudio=undefined;this.unsubscribeAudio?.();this.unsubscribeAudio=undefined;this.knownAlerts.clear();this.initializedAlerts=false;this.criticalNeeds.clear();
         this.unsubscribeWorkday?.();
         this.unsubscribeWorkday = undefined;
         this.unsubscribeCoding?.();

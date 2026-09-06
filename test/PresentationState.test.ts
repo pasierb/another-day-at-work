@@ -1,0 +1,6 @@
+import assert from 'node:assert/strict';import test from 'node:test';
+import{derivePresentationState}from'../src/game/presentation/PresentationState';
+const input=(dayProgress:number,technicalDebt:number,severities:('low'|'medium'|'high'|'critical')[]=[])=>({dayProgress,technicalDebt,activeAlerts:severities.map(severity=>({severity}))});
+test('presentation stages use documented inclusive boundaries',()=>{assert.equal(derivePresentationState(input(.39,19)).stage,'calm');assert.equal(derivePresentationState(input(.4,20)).stage,'busy');assert.equal(derivePresentationState(input(.75,40)).stage,'strained');assert.equal(derivePresentationState(input(.75,70,['high'])).stage,'critical');});
+test('equivalent input is deterministic and immutable',()=>{const source=input(.8,50,['medium','critical']);const before=structuredClone(source);const one=derivePresentationState(source),two=derivePresentationState(source);assert.deepEqual(one,two);assert.deepEqual(source,before);assert.ok(Object.isFrozen(one));});
+test('out of range presentation input is clamped',()=>{assert.deepEqual(derivePresentationState(input(-2,-4)),derivePresentationState(input(0,0)));assert.deepEqual(derivePresentationState(input(9,900)),derivePresentationState(input(1,100)));});
