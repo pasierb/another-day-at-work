@@ -24,6 +24,7 @@ import { InteractionLifecycle, type InteractionCancelReason } from '../presentat
 import { installWorkstationDiagnostics } from '../presentation/PlaytestDiagnostics';
 import { presentationTexture, STRESS_BUNDLES } from '../presentation/assets';
 import { interruptionIdentity,notificationIdentity,severityMarker } from '../presentation/identities';
+import { configureHighDpiScene } from '../presentation/HighDpiRendering';
 
 const textStyle = { fontFamily: TYPE.family, fontSize: TYPE.body, color: COLORS.text } as const;
 const mutedStyle = { fontFamily: TYPE.family, fontSize: TYPE.small, color: COLORS.textMuted } as const;
@@ -97,6 +98,7 @@ export class Workstation extends Scene {
     constructor () { super('Workstation'); }
 
     create () {
+        configureHighDpiScene(this);
         this.cleanupWorkday();
         this.input.enabled=true;this.input.resetPointers();this.input.keyboard?.resetKeys();
         this.consequenceFeedback.length=0;

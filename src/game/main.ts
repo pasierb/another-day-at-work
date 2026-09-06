@@ -3,10 +3,11 @@ import { Boot } from './scenes/Boot';
 import { Preloader } from './scenes/Preloader';
 import { Workstation } from './scenes/Workstation';
 import { Results } from './scenes/Results';
+import { HIGH_DPI_GAME_SIZE } from './presentation/HighDpiRendering';
 
 const config: Phaser.Types.Core.GameConfig = {
-    type: AUTO, width: 1280, height: 720, parent: 'game-container', backgroundColor: '#111722',
-    scale: { mode: Scale.FIT, autoCenter: Scale.CENTER_BOTH, width: 1280, height: 720 },
+    type: AUTO, width: HIGH_DPI_GAME_SIZE.width, height: HIGH_DPI_GAME_SIZE.height, parent: 'game-container', backgroundColor: '#111722',
+    scale: { mode: Scale.FIT, autoCenter: Scale.CENTER_BOTH, width: HIGH_DPI_GAME_SIZE.width, height: HIGH_DPI_GAME_SIZE.height },
     scene: [Boot, Preloader, Workstation, Results]
 };
 

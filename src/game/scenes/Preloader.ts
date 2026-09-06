@@ -1,12 +1,14 @@
 import { Scene } from 'phaser';
 import { AUDIO_CATALOG } from '../audio/catalog';
 import { PRESENTATION_ASSETS } from '../presentation/assets';
+import { configureHighDpiScene } from '../presentation/HighDpiRendering';
 
 export class Preloader extends Scene {
     private criticalFailures=new Set<string>();
     constructor () { super('Preloader'); }
 
     init () {
+        configureHighDpiScene(this);
         this.cameras.main.setBackgroundColor(0x111722);
         this.add.text(640, 328, 'ANOTHER DAY AT WORK', {
             fontFamily: 'Arial, sans-serif', fontSize: 28, color: '#f2f5f7', fontStyle: 'bold'
