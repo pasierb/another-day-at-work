@@ -11,7 +11,7 @@ import { ConsequenceQueue } from '../domain/ConsequenceQueue';
 import { EffectEngine } from '../domain/EffectEngine';
 import { CodingDisruptionLedger } from '../domain/CodingDisruptionLedger';
 import type { ConsequenceFeedback,Effect } from '../domain/effects';
-import { InterruptionSession, type ActiveInterruptionSnapshot, type InterruptionChoiceDefinition,
+import { createRunContext, InterruptionSession, type ActiveInterruptionSnapshot, type InterruptionChoiceDefinition,
     type InterruptionSessionSnapshot, type TransitionBatch } from '../domain/interruptions';
 import { REGIONS } from '../ui/layout';
 import { actionButton, disabledAction, heading, meter, panel, type ActionView, type MeterView } from '../ui/primitives';
@@ -86,7 +86,7 @@ export class Workstation extends Scene {
         }, 20260906);
         this.consequenceQueue=new ConsequenceQueue();
         this.disruptions=new CodingDisruptionLedger();
-        this.effectEngine=new EffectEngine({mutateResource:(resource,amount)=>this.workday.mutateResource(resource,amount),reduceFocus:amount=>this.coding.reduceFocus(amount),reduceTaskProgress:amount=>this.taskQueue.reduceSelectedProgress(amount),disruptions:this.disruptions,queue:this.consequenceQueue,gameTime:()=>this.workday.snapshot.elapsedGameMs,technicalDebt:()=>this.workday.snapshot.resources.technicalDebt,feedback:record=>this.showConsequenceFeedback(record)},20260907);
+        this.effectEngine=new EffectEngine({mutateResource:(resource,amount)=>this.workday.mutateResource(resource,amount),reduceFocus:amount=>this.coding.reduceFocus(amount),reduceTaskProgress:amount=>this.taskQueue.reduceSelectedProgress(amount),disruptions:this.disruptions,queue:this.consequenceQueue,gameTime:()=>this.workday.snapshot.elapsedGameMs,technicalDebt:()=>this.workday.snapshot.resources.technicalDebt,feedback:record=>this.showConsequenceFeedback(record),consequenceConcluded:id=>this.interruptions.recordConcludedConsequence(id)},20260907);
         this.cameras.main.setBackgroundColor(COLORS.backdrop);
         this.buildBackdrop();
         this.buildResourceHud();
@@ -270,7 +270,7 @@ export class Workstation extends Scene {
         const scrim = this.add.rectangle(0, 0, 1280, 720, 0x05080d, 0.78).setOrigin(0).setInteractive();
         const card = this.add.rectangle(280, 92, 720, 536, COLORS.surfaceRaised).setOrigin(0).setStrokeStyle(2, severityColors[event.severity]);
         overlay.add([scrim, card]);
-        overlay.add(this.add.text(320, 126, `${event.category.replace('-', ' ').toUpperCase()} · ${event.severity.toUpperCase()}`, { ...mutedStyle, color: '#f5b84b', fontStyle: 'bold' }));
+        overlay.add(this.add.text(320, 126, `${event.category.replace('-', ' ').toUpperCase()} · ${event.severity.toUpperCase()}${event.cause?` · CAUSE ${event.cause.type.replace('-', ' ').toUpperCase()}`:''}`, { ...mutedStyle, color: '#f5b84b', fontStyle: 'bold' }));
         overlay.add(this.add.text(320, 154, event.title, { ...textStyle, fontSize: 25, fontStyle: 'bold' }));
         overlay.add(this.add.text(320, 196, event.copy, { ...textStyle, fontSize: 16, wordWrap: { width: 640 } }));
         overlay.add(this.add.text(320, 238, 'Choose a response · this decision cannot be dismissed', mutedStyle));
@@ -311,9 +311,9 @@ export class Workstation extends Scene {
         const pending = this.interruptions.beginResolution(choiceId);
         if (!pending) return;
         this.workday.spendGameMinutes(pending.choice.gameMinutes);
-        this.synchronizeWorld();
         this.effectEngine.execute(pending.choice.effects,pending.interruptionId);
         this.interruptions.finalizeResolution(pending.interruptionId);
+        this.reconcileStaleWarnings();
         this.scheduler.resolved(pending.interruptionId, candidate => this.activateCandidate(candidate));
         this.workday.resume(DECISION_PAUSE_REASON);
         this.synchronizeCodingAvailability();
@@ -333,8 +333,8 @@ export class Workstation extends Scene {
     private synchronizeInterruptions (): void {
         const day = this.workday.snapshot;
         if (day.isPaused) return;
-        const tasks=this.taskQueue.snapshot;const history=this.interruptions.snapshot;
-        this.scheduler.synchronize(day.elapsedGameMs,candidate=>this.activateCandidate(candidate),{selectedTaskId:tasks.selectedTaskId,completedTaskIds:tasks.completedTaskIds,resolvedEventIds:history.resolvedIds,resolvedChoices:history.resolvedOutcomes,resources:day.resources});
+        this.reconcileStaleWarnings();
+        this.scheduler.synchronize(day.elapsedGameMs,candidate=>this.activateCandidate(candidate),this.interruptionContext());
         let batch = this.interruptions.setCurrentGameMs(day.elapsedGameMs);
         let guard = 0;
         while (batch.length > 0) {
@@ -392,6 +392,18 @@ export class Workstation extends Scene {
         return this.interruptions.activate(candidate.definitionId, candidate.dueGameMs, candidate.sequence);
     }
 
+    private interruptionContext () {
+        const day=this.workday.snapshot,tasks=this.taskQueue.snapshot,history=this.interruptions.snapshot,needs=this.playerNeeds.snapshot,boosters=this.boosters.snapshot;
+        const stageIndex=(id:NeedId)=>this.playerNeeds.config.needs[id].stages.findIndex(stage=>stage.id===needs[id].stage.id);
+        return createRunContext({selectedTaskId:tasks.selectedTaskId,completedTaskIds:tasks.completedTaskIds,resolvedEventIds:history.resolvedIds,resolvedChoices:history.resolvedOutcomes,resources:day.resources,needStages:{sleepiness:stageIndex('sleepiness'),toilet:stageIndex('toilet')},boosterCounts:boosters.consumptionCounts,incidentCounts:history.incidentCounts,concludedConsequenceIds:history.concludedConsequenceIds,activeDeduplicationKeys:history.active.map(item=>item.deduplicationKey??item.id),cooldownUntilGameMs:history.cooldownUntilGameMs,currentGameMs:day.elapsedGameMs});
+    }
+
+    private reconcileStaleWarnings (): void {
+        const context=this.interruptionContext();this.scheduler.cancelIneligible(context);const dismissed=this.interruptions.dismissStale(context);
+        dismissed.forEach(id=>this.scheduler.resolved(id,candidate=>this.activateCandidate(candidate)));
+        if(dismissed.length)this.cancelHeldCodingForDecision();
+    }
+
     private applyTransitionBatch (batch: TransitionBatch): void {
         for (const transition of batch) {
             this.effectEngine.execute(transition.effects,transition.interruptionId);
@@ -425,6 +437,8 @@ export class Workstation extends Scene {
             this.applyNeedCodingModifiers();
         }
         this.boosterFeedbackText?.setText(`${result.feedback} ${this.boosters.config.boosters[id].label} #${result.consumptionCount} consumed.`);
+        this.reconcileStaleWarnings();
+        this.synchronizeInterruptions();
         this.synchronizeCodingAvailability();
         this.updateBoosterAvailability();
     }
@@ -463,6 +477,7 @@ export class Workstation extends Scene {
             this.workday.spendGameMinutes(this.playerNeeds.config.bathroomGameMinutes);
             this.synchronizeWorld();
             this.playerNeeds.relieve('toilet');
+            this.reconcileStaleWarnings();
             this.applyNeedCodingModifiers();
             this.showNeedFeedback('Bathroom break complete. Biological incident downgraded.');
             this.synchronizeCodingAvailability();
