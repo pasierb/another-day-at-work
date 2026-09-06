@@ -239,7 +239,8 @@ while (( iteration < max_iterations )); do
     'Do not archive or commit during this phase.' \
     'Your final response must match the supplied JSON schema. Use outcome applied only when every task is complete; otherwise use blocked. Set change to the exact active change name.')
   run_codex "apply:$expected_change" "$apply_prompt"
-  [[ "$CODEX_OUTCOME" == "applied" ]] || die "apply phase ended with $CODEX_OUTCOME"
+  [[ "$CODEX_OUTCOME" == "applied" || "$CODEX_OUTCOME" == "complete" ]] || \
+    die "apply phase ended with $CODEX_OUTCOME"
   [[ "$CODEX_CHANGE" == "$expected_change" ]] || die "apply phase returned the wrong change name"
   assert_apply_complete "$expected_change" || die "OpenSpec reports incomplete implementation tasks"
 
@@ -253,7 +254,8 @@ while (( iteration < max_iterations )); do
     'This is unattended automation: do not ask questions and never skip validation, spec sync, or incomplete work. Return blocked instead.' \
     'Your final response must match the supplied JSON schema. Use outcome finalized only after archive and commit both succeed; otherwise use blocked. Set change to the exact change name.')
   run_codex "finalize:$expected_change" "$finalize_prompt"
-  [[ "$CODEX_OUTCOME" == "finalized" ]] || die "finalize phase ended with $CODEX_OUTCOME"
+  [[ "$CODEX_OUTCOME" == "finalized" || "$CODEX_OUTCOME" == "complete" ]] || \
+    die "finalize phase ended with $CODEX_OUTCOME"
   [[ "$CODEX_CHANGE" == "$expected_change" ]] || die "finalize phase returned the wrong change name"
 
   read_active_changes ACTIVE_AFTER_FINALIZE
