@@ -15,7 +15,7 @@ import { REGIONS } from '../ui/layout';
 import { heading, meter, panel, roundedSurface, toolbarActionButton, type ActionView, type MeterView } from '../ui/primitives';
 import { COLORS, DEPTH, TYPE } from '../ui/theme';
 import { WorkdaySession } from '../domain/WorkdaySession';
-import { DEVELOPER_PACING_PROFILE,NORMAL_PACING_PROFILE } from '../domain/WorkdayPacing';
+import { DEVELOPER_PACING_PROFILE,NORMAL_PACING_PROFILE,WORKDAY_DURATION_MS } from '../domain/WorkdayPacing';
 import { derivePresentationState } from '../presentation/PresentationState';
 import { gameAudio, SceneAudioDirector } from '../audio/GameAudio';
 import { browserGuidanceStorage, GuidancePreference } from '../presentation/GuidancePreference';
@@ -241,23 +241,23 @@ export class Workstation extends Scene {
 
     private renderTaskQueue(snapshot:EngineeringTaskQueueSnapshot):void{
         if(!this.taskRows)return;this.taskRows.removeAll(true);
-        const tasks=snapshot.tasks.filter(task=>this.taskFilter==='all'||(this.taskFilter==='current'&&task.isSelected)||(this.taskFilter==='urgent'&&task.priority==='urgent'&&!task.isComplete));
+        const tasks=snapshot.tasks.filter(task=>task.status!=='dormant'&&(this.taskFilter==='all'||(this.taskFilter==='current'&&task.isSelected)||(this.taskFilter==='urgent'&&(task.priority==='urgent'||(task.remainingGameMs!==null&&task.remainingGameMs<=30*60_000))&&!task.isComplete)));
         if(!tasks.length){this.taskRows.add(this.add.text(18,104,this.taskFilter==='urgent'?'No urgent tasks. Nice.':'No task selected.',{...mutedStyle,color:'#d8e2ea'}));return;}
         tasks.forEach((task,index)=>{
-            const y=82+index*70,selected=task.isSelected,urgent=task.priority==='urgent'&&!task.isComplete;
+            const y=82+index*58,selected=task.isSelected,urgent=task.status==='active'&&(task.priority==='urgent'||(task.remainingGameMs!==null&&task.remainingGameMs<=30*60_000));
             const fill=selected?0x1c5d91:urgent?0xf7d5de:0xf2f5f8,border=selected?0x68bfff:urgent?0xf05c75:0xaeb9c3,text=selected?'#ffffff':'#172331',sub=selected?'#c9e7ff':'#667585';
             if(selected)this.taskRows!.add(roundedSurface(this,12,y,226,62,0x3b9ee8,0x2b8ed5,10,.22,4));
-            const cardSurface=roundedSurface(this,16,y+3,218,56,fill,border,8,1,selected?2:1);
-            const bg=this.add.rectangle(16,y+3,218,56,0xffffff,0).setOrigin(0);
-            if(!task.isComplete&&!this.decisionOverlay){bg.setInteractive({useHandCursor:true});bg.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.selectTask(task.id));}
-            const iconFill=task.isComplete?0x40ae73:selected?0x367eb4:urgent?0xee6680:0xe5ebf0;
+            const cardSurface=roundedSurface(this,16,y+3,218,50,fill,border,8,1,selected?2:1);
+            const bg=this.add.rectangle(16,y+3,218,50,0xffffff,0).setOrigin(0);
+            if(task.status==='active'&&!this.decisionOverlay){bg.setInteractive({useHandCursor:true});bg.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.selectTask(task.id));}
+            const iconFill=task.isComplete?0x40ae73:task.status==='failed'?0x8f3949:selected?0x367eb4:urgent?0xee6680:0xe5ebf0;
             const icon=this.add.rectangle(25,y+14,18,18,iconFill).setOrigin(0).setStrokeStyle(1,selected?0xa9dcff:0x8798a7);
             const pillColor=task.isComplete?0x40ae73:task.priority==='low'?0x40ae73:task.priority==='medium'?0xd99820:task.priority==='high'?0xec624c:0xd92f4d;
-            const pillLabel=task.isComplete?'DONE':task.priority.toUpperCase();const pillWidth=Math.max(42,pillLabel.length*6+12);
+            const pillLabel=task.isComplete?'DONE':task.status==='failed'?'FAILED':urgent?'URGENT':task.priority.toUpperCase();const pillWidth=Math.max(42,pillLabel.length*6+12);
             const pill=this.add.rectangle(224-pillWidth,y+35,pillWidth,18,pillColor).setOrigin(0);
             this.taskRows!.add([cardSurface,bg,icon,this.add.text(34,y+23,task.isComplete?'✓':'↗',{fontFamily:TYPE.family,fontSize:10,color:'#ffffff',fontStyle:'bold'}).setOrigin(.5),
                 this.add.text(51,y+11,task.title,{fontFamily:TYPE.family,fontSize:10,color:text,fontStyle:'bold'}),
-                this.add.text(51,y+31,task.id,{fontFamily:TYPE.family,fontSize:8,color:sub}),pill,
+                this.add.text(51,y+27,[task.id,task.stakeholder,task.deadlineGameMs!==null?`due ${String(9+Math.floor((task.deadlineGameMs%WORKDAY_DURATION_MS)/3_600_000)).padStart(2,'0')}:${String(Math.floor((task.deadlineGameMs%3_600_000)/60_000)).padStart(2,'0')} · ${Math.ceil((task.remainingGameMs??0)/60_000)}m`:task.status==='active'?'untimed':undefined].filter(Boolean).join(' · '),{fontFamily:TYPE.family,fontSize:7,color:sub}),pill,
                 this.add.text(224-pillWidth/2,y+44,pillLabel,{fontFamily:TYPE.family,fontSize:8,color:'#ffffff',fontStyle:'bold'}).setOrigin(.5),
                 this.add.text(224,y+12,task.isComplete?'100%':`${task.progress.toFixed(0)}%`,{fontFamily:TYPE.family,fontSize:8,color:sub}).setOrigin(1,0)
             ]);
@@ -387,7 +387,7 @@ export class Workstation extends Scene {
 
     private resolveTaskChoice(choiceId:string):void{const choice=this.taskQueue.resolvePendingDecision(choiceId);if(!choice)return;this.session.advanceGameMs(choice.gameMinutes*60_000,true);this.effectEngine.execute(choice.effects,`task-decision:${choiceId}`);this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);this.decisionOverlay?.destroy(true);this.decisionOverlay=undefined;this.cancelHeldCodingForDecision();this.synchronizeWorld();this.renderTaskQueue(this.taskQueue.snapshot);this.session.finalize(`task:${choiceId}`);this.enterResultsIfComplete();}
 
-    private describeEffect(effect:Effect):string{if(effect.type==='resource')return `${effect.amount>=0?'+':''}${effect.amount} ${effect.resource.replace(/([A-Z])/g,' $1')}`;if(effect.type==='focus')return `-${Math.round(effect.reduction*100)}% Focus`;if(effect.type==='task-progress')return `-${effect.reduction}% task progress`;if(effect.type==='coding-disruption')return `${Math.round(effect.speedFactor*100)}% coding for ${Math.round(effect.durationGameMs/60000)}m`;if(effect.type==='delayed')return `Future risk in ${Math.round(effect.delayGameMs/60000)}m`;return `${Math.round(effect.chance*100)}% uncertain outcome`;}
+    private describeEffect(effect:Effect):string{if(effect.type==='resource')return `${effect.amount>=0?'+':''}${effect.amount} ${effect.resource.replace(/([A-Z])/g,' $1')}`;if(effect.type==='focus')return `-${Math.round(effect.reduction*100)}% Focus`;if(effect.type==='task-progress')return `-${effect.reduction}% task progress`;if(effect.type==='task-effort')return `+${effect.amount} effort on ${effect.taskId}`;if(effect.type==='task-deadline')return `${effect.mode==='extend'?'Extend':'Set'} ${effect.taskId} ${Math.round(effect.durationGameMs/60000)}m`;if(effect.type==='task-activate')return `Activate ${effect.taskId}`;if(effect.type==='coding-disruption')return `${Math.round(effect.speedFactor*100)}% coding for ${Math.round(effect.durationGameMs/60000)}m`;if(effect.type==='delayed')return `Future risk in ${Math.round(effect.delayGameMs/60000)}m`;return `${Math.round(effect.chance*100)}% uncertain outcome`;}
 
     private resolveChoice (choiceId: string): void {
         const pending = this.interruptions.beginResolution(choiceId);
@@ -597,6 +597,7 @@ export class Workstation extends Scene {
         this.resourceViews.technicalDebt.value.setText(`${Math.round(debt)}%`);
         this.resourceViews.technicalDebt.meter.setValue(debt / 100);
         this.clockText.setText(`DAY ${snapshot.dayIndex}  ·  ${String(snapshot.clockHour).padStart(2, '0')}:${String(snapshot.clockMinute).padStart(2, '0')}`);
+        this.renderTaskQueue(this.taskQueue.snapshot);
         this.dayProgressMeter.setValue(snapshot.dayProgress);
         this.renderPacingOverlay();
         this.updateToiletAvailability();

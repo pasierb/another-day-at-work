@@ -1,5 +1,5 @@
 export default [
- {name:'queue and laptop start synchronized',action:'expect',expect:{expression:`(()=>{const s=scene('Workstation'),t=s.taskQueue.snapshot.selectedTask;return s.taskQueue.snapshot.tasks.length===5&&t&&s.codingTaskText.text.includes(t.id)&&s.taskRows.getAll().length>=21;})()`,equals:true}},
+ {name:'queue and laptop start synchronized',action:'expect',expect:{expression:`(()=>{const s=scene('Workstation'),t=s.taskQueue.snapshot.selectedTask;return s.taskQueue.snapshot.tasks.length===7&&s.taskQueue.snapshot.tasks.filter(x=>x.status==='dormant').length===2&&t&&s.codingTaskText.text.includes(t.id)&&s.taskRows.getAll().length>=21;})()`,equals:true}},
  {name:'make partial progress',action:'eval',code:`const s=scene('Workstation');s.taskQueue.applyWork(2);window.__firstProgress=s.taskQueue.snapshot.selectedTask.progress;s.coding.focus=.6;s.beginCodingSource('keyboard:Space');s.selectTask('TASK-3178');`},
  {name:'manual switch retains progress, costs Focus, and blocks held source',action:'expect',expect:{expression:`(()=>{const s=scene('Workstation');return [s.taskQueue.snapshot.selectedTaskId,s.taskQueue.snapshot.tasks[0].progress===window.__firstProgress,s.coding.snapshot.focus.toFixed(2),s.coding.snapshot.isCodingRequested,s.blockedCodingSources.has('keyboard:Space')].join('|');})()`,equals:'TASK-3178|true|0.40|false|true'}},
  {name:'switch back after release',action:'eval',code:`const s=scene('Workstation');s.endCodingSource('keyboard:Space');s.selectTask('BUG-4821');`},
@@ -10,7 +10,7 @@ export default [
  {name:'task decision blocks background and coding at threshold',action:'expect',expect:{expression:`(()=>{const s=scene('Workstation'),id=s.taskQueue.snapshot.selectedTaskId;s.selectTask('DEBT-204');return window.__mid===50&&s.taskQueue.snapshot.selectedTaskId===id&&!!s.decisionOverlay&&!s.coding.snapshot.isAvailable;})()`,equals:true}},
  {name:'resolve choice once',action:'eval',code:`const s=scene('Workstation');s.resolveTaskChoice('safe-index');s.resolveTaskChoice('safe-index');s.taskQueue.reduceSelectedProgress(40);s.taskQueue.applyWork(11);`},
  {name:'choice applies once and midpoint cannot retrigger',action:'expect',expect:{expression:`(()=>{const s=scene('Workstation');return s.workday.snapshot.resources.systemStability-window.__beforeChoice===5&&!s.taskQueue.snapshot.pendingDecision&&s.taskQueue.snapshot.selectedTask.progress>50&&!s.coding.snapshot.isCodingRequested;})()`,equals:true}},
- {name:'select another row with pointer',action:'click',x:120,y:332},
+ {name:'select another row with pointer',action:'click',x:120,y:212},
  {name:'pointer selection synchronizes laptop',action:'expect',expect:{expression:`scene('Workstation').taskQueue.snapshot.selectedTaskId==='DEBT-204'&&scene('Workstation').codingTaskText.text.includes('DEBT-204')`,equals:true}},
  {name:'keyboard coding works after transition',action:'key',key:'Space',duration:250},
  {name:'keyboard advanced selected task and released',action:'expect',expect:{expression:`scene('Workstation').taskQueue.snapshot.selectedTask.progress>0&&!scene('Workstation').coding.snapshot.isCodingRequested`,equals:true}},
