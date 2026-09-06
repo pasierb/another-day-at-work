@@ -9,6 +9,7 @@ import { INTERRUPTION_CATALOG } from '../content/poTeamInterruptions';
 import { EventScheduler, type ScheduledCandidate } from '../domain/EventScheduler';
 import { ConsequenceQueue } from '../domain/ConsequenceQueue';
 import { EffectEngine } from '../domain/EffectEngine';
+import { CodingDisruptionLedger } from '../domain/CodingDisruptionLedger';
 import type { ConsequenceFeedback,Effect } from '../domain/effects';
 import { InterruptionSession, type ActiveInterruptionSnapshot, type InterruptionChoiceDefinition,
     type InterruptionSessionSnapshot, type TransitionBatch } from '../domain/interruptions';
@@ -33,6 +34,7 @@ export class Workstation extends Scene {
     scheduler!: EventScheduler;
     consequenceQueue!: ConsequenceQueue;
     effectEngine!: EffectEngine;
+    disruptions!: CodingDisruptionLedger;
     playerNeeds!: PlayerNeeds;
     boosters!: BoosterSession;
     private resourceViews!: Record<ResourceKey, { value: GameObjects.Text; meter: MeterView }>;
@@ -77,13 +79,14 @@ export class Workstation extends Scene {
         this.taskQueue = new EngineeringTaskQueue(ENGINEERING_TASKS);
         this.playerNeeds = new PlayerNeeds({}, this.workday.snapshot.elapsedGameMs);
         this.boosters = new BoosterSession({}, 20260908);
-        this.interruptions = new InterruptionSession(INTERRUPTION_CATALOG, this.workday.snapshot.elapsedGameMs);
+        this.interruptions = new InterruptionSession(INTERRUPTION_CATALOG, this.workday.snapshot.elapsedGameMs, false, () => this.workday.snapshot.resources.technicalDebt);
         this.scheduler = new EventScheduler(INTERRUPTION_CATALOG, {
             minimumSpawnIntervalMs: 20 * 60_000, maximumSpawnIntervalMs: 35 * 60_000,
             activeLimit: 3, endGameMs: WORKDAY_DURATION_MS
         }, 20260906);
         this.consequenceQueue=new ConsequenceQueue();
-        this.effectEngine=new EffectEngine({mutateResource:(resource,amount)=>this.workday.mutateResource(resource,amount),reduceFocus:amount=>this.coding.reduceFocus(amount),reduceTaskProgress:amount=>this.taskQueue.reduceSelectedProgress(amount),queue:this.consequenceQueue,gameTime:()=>this.workday.snapshot.elapsedGameMs,technicalDebt:()=>this.workday.snapshot.resources.technicalDebt,feedback:record=>this.showConsequenceFeedback(record)},20260907);
+        this.disruptions=new CodingDisruptionLedger();
+        this.effectEngine=new EffectEngine({mutateResource:(resource,amount)=>this.workday.mutateResource(resource,amount),reduceFocus:amount=>this.coding.reduceFocus(amount),reduceTaskProgress:amount=>this.taskQueue.reduceSelectedProgress(amount),disruptions:this.disruptions,queue:this.consequenceQueue,gameTime:()=>this.workday.snapshot.elapsedGameMs,technicalDebt:()=>this.workday.snapshot.resources.technicalDebt,feedback:record=>this.showConsequenceFeedback(record)},20260907);
         this.cameras.main.setBackgroundColor(COLORS.backdrop);
         this.buildBackdrop();
         this.buildResourceHud();
@@ -302,7 +305,7 @@ export class Workstation extends Scene {
         return [`Clock +${choice.gameMinutes}m`, ...effects].join('  ·  ');
     }
 
-    private describeEffect(effect:Effect):string{if(effect.type==='resource')return `${effect.amount>=0?'+':''}${effect.amount} ${effect.resource.replace(/([A-Z])/g,' $1')}`;if(effect.type==='focus')return `-${Math.round(effect.reduction*100)}% Focus`;if(effect.type==='task-progress')return `-${effect.reduction}% task progress`;if(effect.type==='delayed')return `Future risk in ${Math.round(effect.delayGameMs/60000)}m`;return `${Math.round(effect.chance*100)}%+ uncertain outcome`;}
+    private describeEffect(effect:Effect):string{if(effect.type==='resource')return `${effect.amount>=0?'+':''}${effect.amount} ${effect.resource.replace(/([A-Z])/g,' $1')}`;if(effect.type==='focus')return `-${Math.round(effect.reduction*100)}% Focus`;if(effect.type==='task-progress')return `-${effect.reduction}% task progress`;if(effect.type==='coding-disruption')return `${Math.round(effect.speedFactor*100)}% coding for ${Math.round(effect.durationGameMs/60000)}m`;if(effect.type==='delayed')return `Future risk in ${Math.round(effect.delayGameMs/60000)}m`;return `${Math.round(effect.chance*100)}% uncertain outcome`;}
 
     private resolveChoice (choiceId: string): void {
         const pending = this.interruptions.beginResolution(choiceId);
@@ -340,6 +343,11 @@ export class Workstation extends Scene {
             batch = this.interruptions.setCurrentGameMs(day.elapsedGameMs);
         }
         this.effectEngine.synchronize(day.elapsedGameMs);
+        const wasBlocked=this.disruptions.snapshot.effectiveSpeedFactor===0;
+        const expired=this.disruptions.synchronize(day.elapsedGameMs);
+        expired.forEach(item=>this.showConsequenceFeedback(Object.freeze({consequenceId:item.id,sourceId:item.sourceId,kind:'concluded',tone:'positive',text:item.endFeedback})));
+        if(wasBlocked&&this.disruptions.snapshot.effectiveSpeedFactor>0)this.cancelHeldCodingForDecision();
+        this.applyNeedCodingModifiers();
     }
 
     private synchronizeWorld (): void {
@@ -371,7 +379,7 @@ export class Workstation extends Scene {
 
     private applyNeedCodingModifiers (): void {
         const needs = this.playerNeeds.snapshot;
-        this.coding.setRuntimeModifiers({ codingSpeed: needs.codingSpeedModifier, focusGain: needs.focusGainModifier });
+        this.coding.setRuntimeModifiers({ codingSpeed: Math.min(needs.codingSpeedModifier,this.disruptions.snapshot.effectiveSpeedFactor), focusGain: needs.focusGainModifier });
     }
 
     private showNeedFeedback (message: string): void {
@@ -573,13 +581,15 @@ export class Workstation extends Scene {
             this.codingActionLabel.setColor(COLORS.textMuted).setText('CODING UNAVAILABLE');
             const day = this.workday.snapshot;
             const reason = !task ? 'All tasks complete' : this.taskQueue.snapshot.pendingDecision ? 'Task decision open'
+                : this.disruptions.snapshot.effectiveSpeedFactor===0 ? (this.disruptions.snapshot.reason??'Tooling disruption')
                 : day.isDayComplete ? 'Workday complete' : day.isPaused ? 'Workday paused' : 'Stamina exhausted';
             this.codingActionDetail.setText(reason);
             return;
         }
         this.codingActionBackground.setInteractive({ useHandCursor: true });
         this.codingActionLabel.setColor(COLORS.text).setText(snapshot.isCoding ? 'CODING…' : 'HOLD TO CODE');
-        this.codingActionDetail.setText(snapshot.isCoding ? 'Keep holding to build Focus' : 'Pointer or Space');
+        const disruption=this.disruptions.snapshot;
+        this.codingActionDetail.setText(snapshot.isCoding ? (disruption.effectiveSpeedFactor<1?`Tooling slowdown · ${Math.round(disruption.effectiveSpeedFactor*100)}% speed`:'Keep holding to build Focus') : 'Pointer or Space');
         this.codingActionBackground.setFillStyle(snapshot.isCoding ? COLORS.mint : COLORS.blue)
             .setStrokeStyle(2, snapshot.isCoding ? 0xa4f2dc : 0x8ac5ff)
             .setAlpha(1);
