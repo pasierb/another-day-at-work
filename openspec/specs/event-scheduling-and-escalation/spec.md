@@ -93,16 +93,16 @@ Resolving an interruption SHALL cancel all unentered escalation stages and follo
 - **WHEN** resolution and escalation are evaluated at the same game time
 - **THEN** an already accepted resolution wins and the event does not escalate or emit stage effects
 
-### Requirement: Alert presentation prioritizes urgency
-The alerts area SHALL order unresolved interruptions by severity first and age second, while preserving deterministic order for equal values, and SHALL visually distinguish urgent alerts.
+### Requirement: Alert presentation keeps stable positions
+The alerts area SHALL assign newly active interruptions to seeded-random free notification slots, SHALL preserve each interruption's slot while it remains active, and SHALL visually distinguish urgent alerts.
 
 #### Scenario: An interruption becomes more severe
 - **WHEN** escalation raises an active interruption's severity
-- **THEN** the alerts area updates its copy and styling and reorders it according to the new urgency
+- **THEN** the alerts area updates its copy and styling without moving its sticky to another slot
 
-#### Scenario: Alerts have equal severity and age
-- **WHEN** two active alerts have equal severity and displayed age
-- **THEN** their relative order remains stable across renders
+#### Scenario: An earlier sticky resolves
+- **WHEN** an active interruption is removed before another visible sticky
+- **THEN** each surviving sticky remains in its assigned position and a newly active interruption may use any free slot without moving the survivors
 
 ### Requirement: Selected event weights respond deterministically to Technical Debt
 The game SHALL support content-defined base event weights with optional bounded Technical Debt modifiers, SHALL evaluate them when selecting a new scheduled event, and SHALL preserve deterministic selection for identical seeds and state.

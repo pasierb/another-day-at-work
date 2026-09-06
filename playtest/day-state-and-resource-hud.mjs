@@ -3,7 +3,15 @@ export default [
         name: 'fresh workday HUD matches default snapshot',
         action: 'expect',
         expect: {
-            expression: `(() => { const scene = game.scene.getScene('Workstation'); scene.workday.reset(); return scene.clockText.text === '09:00' && scene.resourceViews.stamina.value.text === '75 / 100' && scene.resourceViews.poHappiness.value.text === '75 / 100' && scene.resourceViews.systemStability.value.text === '75 / 100' && scene.resourceViews.technicalDebt.value.text.startsWith('0%'); })()`,
+            expression: `(() => { const scene = game.scene.getScene('Workstation'); scene.workday.reset(); return scene.clockText.text === 'DAY 1  ·  09:00' && scene.resourceViews.stamina.value.text === '75 / 100' && scene.resourceViews.poHappiness.value.text === '75 / 100' && scene.resourceViews.systemStability.value.text === '75 / 100' && scene.resourceViews.technicalDebt.value.text.startsWith('0%'); })()`,
+            equals: true
+        }
+    },
+    {
+        name: 'resources occupy the right status sidebar',
+        action: 'expect',
+        expect: {
+            expression: `(() => { const scene = game.scene.getScene('Workstation'); return ['stamina','poHappiness','systemStability'].every(key => { const bounds = scene.resourceViews[key].value.getBounds(); return bounds.left >= 1024 && bounds.right <= 1276 && bounds.top >= 84 && bounds.bottom <= 646; }); })()`,
             equals: true
         }
     },
@@ -12,7 +20,7 @@ export default [
         name: 'clock and progress advance together',
         action: 'expect',
         expect: {
-            expression: `(() => { const scene = game.scene.getScene('Workstation'); return scene.clockText.text === '09:01' && scene.dayProgressMeter.fill.width > 0; })()`,
+            expression: `(() => { const scene = game.scene.getScene('Workstation'); return scene.clockText.text.includes('09:') && scene.clockText.text !== 'DAY 1  ·  09:00' && scene.dayProgressMeter.fill.width > 0; })()`,
             equals: true
         }
     },
@@ -45,7 +53,7 @@ export default [
         name: 'resume and reset restore the initial presentation',
         action: 'expect',
         expect: {
-            expression: `(() => { const scene = game.scene.getScene('Workstation'); scene.workday.resume('playtest'); scene.workday.reset(); return scene.clockText.text === '09:00' && scene.resourceViews.technicalDebt.value.text.startsWith('0%') && !scene.workday.snapshot.isPaused; })()`,
+            expression: `(() => { const scene = game.scene.getScene('Workstation'); scene.workday.resume('playtest'); scene.workday.reset(); return scene.clockText.text === 'DAY 1  ·  09:00' && scene.resourceViews.technicalDebt.value.text.startsWith('0%') && !scene.workday.snapshot.isPaused; })()`,
             equals: true
         }
     },
@@ -62,7 +70,7 @@ export default [
         name: 'scene re-entry owns one fresh advancing workday',
         action: 'expect',
         expect: {
-            expression: `(() => { const scene = game.scene.getScene('Workstation'); return game.scene.isActive('Workstation') && scene.workday !== window.__previousWorkday && scene.workday.snapshot.elapsedGameMs > 0 && scene.workday.snapshot.elapsedGameMs < 60000; })()`,
+            expression: `(() => { const scene = game.scene.getScene('Workstation'); return game.scene.isActive('Workstation') && scene.workday !== window.__previousWorkday && scene.workday.snapshot.elapsedGameMs === 0 && scene.workday.snapshot.isPaused; })()`,
             equals: true
         }
     },

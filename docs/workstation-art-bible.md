@@ -10,15 +10,15 @@ Calm is open and orderly. Busy adds one bounded prop cluster and mild character 
 
 | Region | Bounds (x, y, w, h) | Contract |
 | --- | --- | --- |
-| Resource HUD | 24, 20, 926, 92 | Variable values and meters |
-| Day clock | 966, 20, 290, 92 | Variable clock |
-| Task queue | 24, 128, 274, 504 | Variable rows and pointer targets |
-| Laptop | 314, 128, 636, 504 | AI controls; inner safe area 342, 210, 580, 338 |
-| Alerts | 966, 128, 290, 504 | Variable cards and pointer targets |
-| Quick actions | 298, 648, 668, 56 | Pointer targets |
+| Alert pager | 430, 14, 420, 38 | Active/backlog count and page controls |
+| Day clock | 984, 4, 292, 72 | Variable clock |
+| Task queue | 4, 84, 250, 562 | Variable rows and pointer targets |
+| Laptop | 430, 340, 420, 306 | AI controls and current-task state |
+| Status sidebar | 1024, 84, 252, 562 | Resource and need meters; transient feedback |
+| Quick actions | 264, 654, 750, 62 | Pointer targets |
 | Modal | 280, 92, 720, 536 | Always above every art layer |
 
-Decoration may touch region edges but may not enter these bounds. Live copy retains at least 16 px internal padding. Every decorative image has input disabled. The laptop's finalized Prompt/Plan controls occupy logical x378–892, y420–468; progress/review content remains inside the laptop region.
+Decoration may touch region edges but may not enter these bounds. Floating notification cards use their bounded slots around the laptop and are the only full alert-card representation. Live copy retains at least 12 px internal padding. Every decorative image has input disabled. Progress/review content remains inside the laptop region.
 
 ## Asset contract
 

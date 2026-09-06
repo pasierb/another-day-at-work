@@ -15,14 +15,22 @@ The game SHALL finish its loading flow by presenting the Another Day at Work wor
 
 #### Scenario: Browser page identifies the game
 - **WHEN** the game page is opened
-- **THEN** the browser metadata and visible game title identify it as Another Day at Work
+- **THEN** the browser metadata identifies it as Another Day at Work while the workstation canvas remains focused on live play information
 
 ### Requirement: Workstation exposes the primary interface regions
-The workstation SHALL present distinct regions for the resource HUD, task queue, laptop workspace, messages and alerts, day clock and progress, and quick actions.
+The workstation SHALL present distinct regions for the right-side status rail, task queue, laptop workspace, floating messages and alerts, day clock and progress, and quick actions.
 
 #### Scenario: Workstation shell is displayed
 - **WHEN** the workstation screen is ready
-- **THEN** all six primary regions are simultaneously visible, labeled or otherwise unambiguously identifiable, and do not overlap
+- **THEN** all six primary regions are simultaneously visible or unambiguously identifiable, status meters do not overlap other controls, and every visible alert remains actionable around the laptop
+
+#### Scenario: Alert presentation avoids duplicate cards
+- **WHEN** an interruption is active
+- **THEN** it appears once as an actionable floating notification and is not repeated in the status rail
+
+#### Scenario: Active alerts exceed the visible limit
+- **WHEN** more interruptions are active than fit on one notification page
+- **THEN** a compact pager exposes active and backlog counts, identifies the current page, and provides bounded previous and next controls
 
 #### Scenario: Empty gameplay regions are shown before mechanics exist
 - **WHEN** a primary region has no implemented gameplay data or interaction
@@ -48,7 +56,7 @@ The workstation SHALL use a layered illustrated scene to visually prioritize the
 
 #### Scenario: Player scans the initial workstation
 - **WHEN** the illustrated workstation is presented at any workday stress stage
-- **THEN** the laptop workspace remains the dominant central element and the HUD, task queue, alerts, clock, needs, Technical Debt, and actions remain legible around it
+- **THEN** the laptop workspace remains the dominant central element and the right status rail, task queue, floating alerts, clock, Technical Debt, and actions remain legible around it
 
 #### Scenario: Player encounters a future-action placeholder
 - **WHEN** an action or data-driven mechanic has not been implemented

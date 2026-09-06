@@ -196,7 +196,9 @@ The center should always visually communicate:
 
 ---
 
-## Top HUD
+## Right Status Sidebar
+
+The right sidebar groups the primary resource meters with Sleepiness and Toilet need indicators. Notifications remain actionable around the laptop instead of being duplicated in the sidebar. A compact pager above the workspace exposes active and backlog counts when alerts overflow.
 
 Three primary resources:
 

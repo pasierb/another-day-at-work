@@ -78,7 +78,7 @@ The workday state SHALL notify registered observers after an effective time, res
 - **THEN** that observer receives no further notifications
 
 ### Requirement: The workstation presents current workday state
-The workstation SHALL display the current time, day progress, Stamina, PO Happiness, System Stability, and Technical Debt from the authoritative workday state.
+The workstation SHALL display the current time, day progress, Stamina, PO Happiness, System Stability, and Technical Debt from the authoritative workday state, with the three primary resources grouped in the right status rail.
 
 #### Scenario: The workstation first appears
 - **WHEN** the Workstation scene is ready with a fresh default workday
@@ -95,6 +95,10 @@ The workstation SHALL display the current time, day progress, Stamina, PO Happin
 #### Scenario: Technical Debt is displayed
 - **WHEN** the workstation presents the current workday state
 - **THEN** Technical Debt remains visually separate from the three primary resource meters
+
+#### Scenario: Primary resources are scanned during play
+- **WHEN** the workstation presents the current workday state
+- **THEN** Stamina, PO Happiness, and System Stability appear as vertically grouped labeled meters in the right status rail
 
 #### Scenario: The scene ends
 - **WHEN** the Workstation scene shuts down

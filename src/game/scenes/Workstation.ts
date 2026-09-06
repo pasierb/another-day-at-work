@@ -4,7 +4,7 @@ import { EngineeringTaskQueue, type EngineeringTaskQueueSnapshot, type TaskDecis
 import { DayState, type DayStateSnapshot, type ResourceKey } from '../domain/DayState';
 import { PlayerNeeds, type NeedId, type NeedTransition, type PlayerNeedsSnapshot } from '../domain/PlayerNeeds';
 import { BoosterSession, type BoosterId, type BoosterSnapshot } from '../domain/BoosterSession';
-import { EventScheduler, type ScheduledCandidate } from '../domain/EventScheduler';
+import { EventScheduler, SeededRandom, type ScheduledCandidate } from '../domain/EventScheduler';
 import { ConsequenceQueue } from '../domain/ConsequenceQueue';
 import { EffectEngine } from '../domain/EffectEngine';
 import { CodingDisruptionLedger } from '../domain/CodingDisruptionLedger';
@@ -34,7 +34,6 @@ const GUIDANCE_PAUSE_REASON = 'first-run-guidance';
 const VISIBILITY_PAUSE_REASON = 'browser-visibility';
 const EXPLICIT_PAUSE_REASON = 'player-pause';
 const TASK_SWITCH_FOCUS_COST = 0.2;
-const severityColors = { low: COLORS.mint, medium: COLORS.amber, high: COLORS.danger, critical: COLORS.danger } as const;
 const severityRanks = { low: 0, medium: 1, high: 2, critical: 3 } as const;
 
 export class Workstation extends Scene {
@@ -72,10 +71,15 @@ export class Workstation extends Scene {
     private codingProgressText!: GameObjects.Text;
     private codingProgressMeter!: MeterView;
     private focusText!: GameObjects.Text;
-    private alertsContent!: GameObjects.Container;
     private floatingAlerts?:GameObjects.Container;
     private alertsCountText!: GameObjects.Text;
+    private alertPreviousButton!:GameObjects.Rectangle;
+    private alertNextButton!:GameObjects.Rectangle;
+    private alertPreviousLabel!:GameObjects.Text;
+    private alertNextLabel!:GameObjects.Text;
     private alertPage=0;
+    private alertSlots=new Map<string,number>();
+    private alertSlotRandom?:SeededRandom;
     private decisionOverlay?: GameObjects.Container;
     private taskRows?: GameObjects.Container;
     private taskFilter:'all'|'current'|'urgent'='all';
@@ -106,11 +110,12 @@ export class Workstation extends Scene {
         this.resultsStarted=false;
         const profile=import.meta.env.VITE_PACING_PROFILE==='developer'?DEVELOPER_PACING_PROFILE:NORMAL_PACING_PROFILE;
         this.session=new WorkdaySession(profile,20260906,record=>this.showConsequenceFeedback(record),false);
+        this.alertSlotRandom=new SeededRandom(this.session.seed+101);
         this.workday=this.session.workday;this.coding=this.session.coding;this.taskQueue=this.session.taskQueue;this.playerNeeds=this.session.playerNeeds;this.boosters=this.session.boosters;this.interruptions=this.session.interruptions;this.scheduler=this.session.scheduler;this.consequenceQueue=this.session.consequenceQueue;this.disruptions=this.session.disruptions;this.effectEngine=this.session.effectEngine;
         this.cameras.main.setBackgroundColor(COLORS.backdrop);
         this.buildBackdrop();
         this.audio=new SceneAudioDirector(this.sound);this.detachAudio=gameAudio.attach(this.sound);this.buildMuteControl();this.buildPauseControl();
-        this.buildResourceHud();
+        this.buildStatusSidebar();
         this.buildDayClock();
         this.buildTasks();
         this.buildLaptop();
@@ -163,35 +168,37 @@ export class Workstation extends Scene {
 
     private renderPresentation():void{if(!this.decor)return;const state=derivePresentationState({dayProgress:this.workday.snapshot.dayProgress,technicalDebt:this.workday.snapshot.resources.technicalDebt,activeAlerts:this.interruptions.snapshot.active});const bundle=STRESS_BUNDLES[state.stage];this.stressText?.setText(`DESK STATUS · ${state.stage.toUpperCase()}`);this.tweens.add({targets:this.stressWash,alpha:bundle.alpha,duration:240,ease:'Sine.easeOut'});const slots=[{x:306,y:30,w:48,h:28,label:'NOTE'},{x:902,y:78,w:42,h:20,label:'PAPERS'},{x:780,y:705,w:92,h:8,label:'CABLE'}];this.decor.list.slice(1).forEach(child=>child.destroy());bundle.props.forEach((label,index)=>{const slot=slots[index];const note=this.add.rectangle(slot.x,slot.y,slot.w,slot.h,index%2?0xc99e52:0xd4c591,.92).setOrigin(0).setAngle(index%2?3:-2);this.decor!.add([note,this.add.text(slot.x+slot.w/2,slot.y+slot.h/2,label.toUpperCase(),{fontFamily:TYPE.family,fontSize:7,color:'#332a22',fontStyle:'bold'}).setOrigin(.5).setAngle(note.angle)]);});}
 
-    private buildResourceHud () {
-        const root = panel(this, REGIONS.resourceHud,0x172331).setDepth(DEPTH.controls);
-        root.add([
-            this.add.text(18,8,'Another\nDay at Work',{fontFamily:TYPE.family,fontSize:17,color:'#ffffff',fontStyle:'bold italic',lineSpacing:-4}),
-            this.add.text(18,52,'BUILD · SURVIVE · SHIP',{fontFamily:TYPE.family,fontSize:7,color:'#9fb0bd'}),
-            this.add.rectangle(154,0,1,72,0x52616b,.7).setOrigin(0)
-        ]);
+    private buildStatusSidebar () {
+        const root = panel(this, REGIONS.statusSidebar,0x172331).setDepth(DEPTH.controls);
+        heading(this,root,'Workday status');
         this.needViews = {} as Record<NeedId, { label: GameObjects.Text; meter: MeterView }>;
-        ([{ id: 'sleepiness', x: 209, meterX:368, color: COLORS.blue }, { id: 'toilet', x: 747, meterX:912, color: COLORS.amber }] as const).forEach(item => {
-            const label = this.add.text(item.x, 54, '', { ...mutedStyle, fontSize: 7 });
-            root.add(label);
-            this.needViews[item.id] = { label, meter: meter(this, root, item.meterX, 57, 42, 0, item.color) };
-        });
         const resources = [
-            { key: 'stamina', x: 164, label: 'Stamina', fill: COLORS.amber, icon:'☕' },
-            { key: 'poHappiness', x: 433, label: 'PO Happiness', fill: COLORS.mint, icon:'PO' },
-            { key: 'systemStability', x: 702, label: 'System Stability', fill: COLORS.danger, icon:'SYS' }
+            { key: 'stamina', y: 46, label: 'Stamina', fill: COLORS.amber, icon:'☕' },
+            { key: 'poHappiness', y: 112, label: 'PO Happiness', fill: COLORS.mint, icon:'PO' },
+            { key: 'systemStability', y: 178, label: 'System Stability', fill: COLORS.danger, icon:'SYS' }
         ] as const;
         const views = {} as Record<ResourceKey, { value: GameObjects.Text; meter: MeterView }>;
         resources.forEach(item => {
-            root.add(this.add.rectangle(item.x+2,7,37,42,item.key==='poHappiness'?0xf0b990:0x263648).setOrigin(0).setStrokeStyle(1,0x607487));
-            root.add(this.add.text(item.x+20,28,item.icon,{fontFamily:TYPE.family,fontSize:item.icon.length>2?8:17,color:'#ffffff',fontStyle:'bold'}).setOrigin(.5));
-            root.add(this.add.text(item.x+48,8,item.label,{...textStyle,fontSize:12,fontStyle:'bold'}));
-            const value = this.add.text(item.x + 258, 9, '', {...textStyle,fontSize:10,fontStyle:'bold'}).setOrigin(1, 0);
+            root.add(this.add.rectangle(14,item.y,38,42,item.key==='poHappiness'?0xf0b990:0x263648).setOrigin(0).setStrokeStyle(1,0x607487));
+            root.add(this.add.text(33,item.y+21,item.icon,{fontFamily:TYPE.family,fontSize:item.icon.length>2?8:17,color:'#ffffff',fontStyle:'bold'}).setOrigin(.5));
+            root.add(this.add.text(62,item.y,item.label,{...textStyle,fontSize:11,fontStyle:'bold'}));
+            const value = this.add.text(238,item.y+1,'',{...textStyle,fontSize:9,fontStyle:'bold'}).setOrigin(1,0);
             root.add(value);
-            views[item.key] = { value, meter: meter(this, root, item.x+48, 29, 210, 0, item.fill) };
+            views[item.key] = { value, meter: meter(this, root, 62,item.y+25,176,0,item.fill) };
         });
-        root.add(this.add.text(481,54,'“Keep it up!”',{fontFamily:TYPE.family,fontSize:8,color:'#b8f3d1',fontStyle:'italic'}));
         this.resourceViews = views;
+        root.add(this.add.rectangle(12,238,228,1,0x52616b,.65).setOrigin(0));
+        root.add(this.add.text(14,252,'PERSONAL NEEDS',{...mutedStyle,fontSize:9,color:'#d8e2ea',fontStyle:'bold'}));
+        ([{id:'sleepiness',y:280,color:COLORS.blue},{id:'toilet',y:336,color:COLORS.amber}] as const).forEach(item=>{
+            const label=this.add.text(14,item.y,'',{...mutedStyle,fontSize:8});root.add(label);
+            this.needViews[item.id]={label,meter:meter(this,root,14,item.y+22,224,0,item.color)};
+        });
+        root.add(this.add.rectangle(12,398,228,1,0x52616b,.65).setOrigin(0));
+        root.add(this.add.text(14,412,'LIVE FEEDBACK',{...mutedStyle,fontSize:9,color:'#d8e2ea',fontStyle:'bold'}));
+        this.consequenceFeedbackText=this.add.text(14,438,'',{...mutedStyle,fontSize:7,color:'#8fdbca',wordWrap:{width:224},lineSpacing:1});
+        this.needFeedbackText=this.add.text(14,480,'',{...mutedStyle,fontSize:7,color:'#f5b84b',wordWrap:{width:224},lineSpacing:1});
+        this.boosterFeedbackText=this.add.text(14,522,'',{...mutedStyle,fontSize:7,color:'#8fdbca',wordWrap:{width:224},lineSpacing:1});
+        root.add([this.consequenceFeedbackText,this.needFeedbackText,this.boosterFeedbackText]);
     }
 
     private buildDayClock () {
@@ -289,51 +296,47 @@ export class Workstation extends Scene {
     }
 
     private buildAlerts () {
-        const root = panel(this, REGIONS.alerts,0x172331).setDepth(DEPTH.controls);
-        heading(this, root, '✉  Messages & alerts');
-        const tabs=[{x:12,w:56,label:'ALL',active:true},{x:72,w:76,label:'SLACK'},{x:152,w:88,label:'SYSTEM'}];
-        tabs.forEach(item=>root.add([this.add.rectangle(item.x,42,item.w,28,item.active?0x286aa1:0x202d3d).setOrigin(0).setStrokeStyle(1,item.active?0x70b7ef:0x34485d),this.add.text(item.x+item.w/2,56,item.label,{...mutedStyle,fontSize:9,color:item.active?'#ffffff':'#aebdca',fontStyle:'bold'}).setOrigin(.5)]));
-        this.alertsCountText = this.add.text(16, 78, '', {...mutedStyle,fontSize:9,color:'#8ac5ff'}).setInteractive({useHandCursor:true});
-        this.alertsCountText.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>{this.alertPage++;this.renderInterruptions(this.interruptions.snapshot);});
-        this.alertsContent = this.add.container(REGIONS.alerts.x, REGIONS.alerts.y).setDepth(DEPTH.controls);
+        const root=this.add.container(430,14).setDepth(DEPTH.controls);
+        root.add(roundedSurface(this,0,0,420,38,0x172331,COLORS.borderStrong,9,.96,2));
+        this.alertPreviousButton=this.add.rectangle(7,6,36,26,0x24384b).setOrigin(0);
+        this.alertNextButton=this.add.rectangle(377,6,36,26,0x24384b).setOrigin(0);
+        this.alertPreviousLabel=this.add.text(25,19,'‹',{...textStyle,fontSize:18,fontStyle:'bold'}).setOrigin(.5);
+        this.alertNextLabel=this.add.text(395,19,'›',{...textStyle,fontSize:18,fontStyle:'bold'}).setOrigin(.5);
+        this.alertsCountText=this.add.text(210,19,'',{...mutedStyle,fontSize:9,color:'#8ac5ff',fontStyle:'bold'}).setOrigin(.5);
+        root.add([this.alertPreviousButton,this.alertNextButton,this.alertPreviousLabel,this.alertNextLabel,this.alertsCountText]);
+        this.alertPreviousButton.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.changeAlertPage(-1));
+        this.alertNextButton.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.changeAlertPage(1));
         this.floatingAlerts=this.add.container(0,0).setDepth(DEPTH.controls);
-        root.add(this.alertsCountText);
-        this.consequenceFeedbackText=this.add.text(16,94,'',{...mutedStyle,fontSize:8,color:'#8fdbca',wordWrap:{width:220}});root.add(this.consequenceFeedbackText);
-        this.needFeedbackText=this.add.text(16,106,'',{...mutedStyle,fontSize:8,color:'#f5b84b',wordWrap:{width:220}});root.add(this.needFeedbackText);
-        this.boosterFeedbackText=this.add.text(16,106,'',{...mutedStyle,fontSize:8,color:'#8fdbca',wordWrap:{width:220}});root.add(this.boosterFeedbackText);
     }
 
+    private occupiedAlertPages(limit=this.stickyLimit()):number[]{const pages=[...new Set([...this.alertSlots.values()].map(slot=>Math.floor(slot/limit)))].sort((a,b)=>a-b);return pages.length?pages:[0];}
+    private randomFreeAlertSlot(occupied:ReadonlySet<number>,limit:number):number{const highest=occupied.size?Math.max(...occupied):-1,pages=Math.max(1,Math.floor(highest/limit)+1),free:number[]=[];for(let slot=0;slot<pages*limit;slot++)if(!occupied.has(slot))free.push(slot);if(!free.length)for(let slot=pages*limit;slot<(pages+1)*limit;slot++)free.push(slot);return free[Math.floor((this.alertSlotRandom?.next()??0)*free.length)]!;}
+    private changeAlertPage(delta:number):void{const pages=this.occupiedAlertPages(),current=Math.max(0,pages.indexOf(this.alertPage)),next=Math.min(pages.length-1,Math.max(0,current+delta));if(next===current)return;this.alertPage=pages[next]!;this.renderInterruptions(this.interruptions.snapshot);}
+    private stickyLimit():number{return this.scale.parentSize.width<700?this.session.profile.presentation.touchStickyLimit:this.session.profile.presentation.desktopStickyLimit;}
+    private paintAlertPager(pages:number,pageIndex:number):void{const paint=(button:GameObjects.Rectangle,label:GameObjects.Text,enabled:boolean)=>{button.disableInteractive().setFillStyle(enabled?0x24384b:COLORS.surfaceMuted).setStrokeStyle(1,enabled?COLORS.blue:COLORS.disabled).setAlpha(enabled?1:.55);label.setAlpha(enabled?1:.4);if(enabled)button.setInteractive({useHandCursor:true});};paint(this.alertPreviousButton,this.alertPreviousLabel,pageIndex>0);paint(this.alertNextButton,this.alertNextLabel,pageIndex<pages-1);}
+
     private renderInterruptions (snapshot: InterruptionSessionSnapshot): void {
-        if (!this.alertsContent) return;
+        if (!this.floatingAlerts) return;
         if(this.initializedAlerts){snapshot.active.filter(item=>!this.knownAlerts.has(item.id)).forEach(item=>this.audio?.cue(severityRanks[item.severity]>=2?'incident':'message',`alert:${item.id}:${item.activationSequence}`));}else this.initializedAlerts=true;
         this.knownAlerts=new Set(snapshot.active.map(item=>item.id));
-        const stickyLimit=this.scale.parentSize.width<700?this.session.profile.presentation.touchStickyLimit:this.session.profile.presentation.desktopStickyLimit;
-        this.alertsContent.removeAll(true);
+        const stickyLimit=this.stickyLimit();
         this.floatingAlerts?.removeAll(true);
         const ordered = [...snapshot.active].sort((a, b) => severityRanks[b.severity] - severityRanks[a.severity]
             || a.activationGameMs - b.activationGameMs || a.activationSequence - b.activationSequence);
-        const pages=Math.max(1,Math.ceil(ordered.length/stickyLimit));this.alertPage%=pages;
-        const visible=ordered.slice(this.alertPage*stickyLimit,(this.alertPage+1)*stickyLimit),backlog=Math.max(0,ordered.length-visible.length)+(this.scheduler?.snapshot.pendingCount??0);
-        this.alertsCountText.setText(`${snapshot.active.length} ACTIVE · ${backlog} BACKLOG · VIEW ${this.alertPage+1}/${pages}`);
-        visible.forEach((event, index) => {
-            const y = 118 + index * 92;
-            const color = severityColors[event.severity];
-            const urgent = severityRanks[event.severity] >= severityRanks.high;
-            const identity=notificationIdentity(event.id,event.category);
-            const cardSurface=roundedSurface(this,10,y,232,82,0xf3f6f9,urgent?color:0xaeb9c3,8,1,urgent?2:1);
-            const background = this.add.rectangle(10, y, 232, 82, 0xffffff,0).setOrigin(0);
-            const avatar=this.add.rectangle(18,y+10,30,30,0xffffff).setOrigin(0).setStrokeStyle(1,0xcbd3da);
-            const avatarContent=identity.texture&&this.textures.exists(identity.texture)?this.add.image(33,y+25,identity.texture).setDisplaySize(23,23):this.add.text(33,y+25,identity.fallback,{fontFamily:TYPE.family,fontSize:identity.fallback.length>2?8:11,color:urgent?'#d43f4b':'#172331',fontStyle:'bold'}).setOrigin(.5);
-            this.alertsContent.add([cardSurface,background,avatar,avatarContent,
-                this.add.text(56,y+9,identity.sender,{fontFamily:TYPE.family,fontSize:10,color:'#172331',fontStyle:'bold'}),
-                this.add.text(232,y+10,`${event.ageGameMinutes}m ago`,{fontFamily:TYPE.family,fontSize:8,color:'#667585'}).setOrigin(1,0),
-                this.add.text(56,y+24,identity.channel,{fontFamily:TYPE.family,fontSize:8,color:urgent?'#d43f4b':'#667585',fontStyle:urgent?'bold':'normal'}),
-                this.add.text(18,y+45,event.title,{fontFamily:TYPE.family,fontSize:10,color:urgent?'#bc2633':'#172331',fontStyle:'bold'}),
-                this.add.text(18,y+62,event.copy,{fontFamily:TYPE.family,fontSize:8,color:'#405164',wordWrap:{width:210},lineSpacing:1})
-            ]);
-            this.addFloatingInterruption(event,index);
+        const activeIds=new Set(ordered.map(item=>item.id));
+        for(const id of this.alertSlots.keys())if(!activeIds.has(id))this.alertSlots.delete(id);
+        const occupied=new Set(this.alertSlots.values());
+        for(const event of ordered){if(this.alertSlots.has(event.id))continue;const slot=this.randomFreeAlertSlot(occupied,stickyLimit);this.alertSlots.set(event.id,slot);occupied.add(slot);}
+        const occupiedPages=this.occupiedAlertPages(stickyLimit);
+        if(!occupiedPages.includes(this.alertPage))this.alertPage=occupiedPages.find(page=>page>this.alertPage)??occupiedPages[occupiedPages.length-1]!;
+        const pageIndex=occupiedPages.indexOf(this.alertPage);
+        const visible=ordered.filter(event=>Math.floor(this.alertSlots.get(event.id)!/stickyLimit)===this.alertPage).sort((a,b)=>this.alertSlots.get(a.id)!-this.alertSlots.get(b.id)!);
+        const backlog=Math.max(0,ordered.length-visible.length)+(this.scheduler?.snapshot.pendingCount??0);
+        this.alertsCountText.setText(`${snapshot.active.length} ACTIVE · ${backlog} BACKLOG · PAGE ${pageIndex+1}/${occupiedPages.length}`);
+        this.paintAlertPager(occupiedPages.length,pageIndex);
+        visible.forEach(event => {
+            this.addFloatingInterruption(event,this.alertSlots.get(event.id)!%stickyLimit);
         });
-        if (snapshot.active.length === 0) this.alertsContent.add(this.add.text(16, 126, 'You are all caught up.', {...mutedStyle,color:'#d8e2ea'}));
         this.renderDecision(snapshot.openInterruption);
         this.renderPresentation();
     }
@@ -351,7 +354,7 @@ export class Workstation extends Scene {
         const identity=notificationIdentity(event.id,event.category),urgent=severityRanks[event.severity]>=severityRanks.high;
         const fill=urgent?0x9f2329:event.category==='product-owner'?0xf7dce5:0xf4f6f8,stroke=urgent?0xff665f:event.category==='product-owner'?0xff7198:0xaeb9c3;
         const ink=urgent?'#ffffff':'#172331',sub=urgent?'#ffd6d2':'#5c6c7b';
-        const group=this.add.container(slot.x,slot.y).setAngle(slot.a);
+        const group=this.add.container(slot.x,slot.y).setAngle(slot.a).setData('interruptionId',event.id);
         const rows=Math.ceil(event.choices.length/2),height=82+rows*25;
         const surface=roundedSurface(this,0,0,228,height,fill,stroke,10,urgent ? .97 : .95,urgent?3:1);
         const icon=identity.texture&&this.textures.exists(identity.texture)?this.add.image(24,24,identity.texture).setDisplaySize(25,25):this.add.text(24,24,identity.fallback,{fontFamily:TYPE.family,fontSize:10,color:ink,fontStyle:'bold'}).setOrigin(.5);
@@ -683,7 +686,7 @@ export class Workstation extends Scene {
         this.removeDiagnostics?.();this.removeDiagnostics=undefined;
         this.guidanceOverlay?.destroy();this.guidanceOverlay=undefined;this.guidancePreference=undefined;
         this.lifecycle?.dispose();this.lifecycle=undefined;
-        this.audio?.dispose();this.audio=undefined;this.detachAudio?.();this.detachAudio=undefined;this.unsubscribeAudio?.();this.unsubscribeAudio=undefined;this.knownAlerts.clear();this.initializedAlerts=false;this.criticalNeeds.clear();
+        this.audio?.dispose();this.audio=undefined;this.detachAudio?.();this.detachAudio=undefined;this.unsubscribeAudio?.();this.unsubscribeAudio=undefined;this.knownAlerts.clear();this.initializedAlerts=false;this.criticalNeeds.clear();this.alertSlots.clear();this.alertSlotRandom=undefined;this.alertPage=0;
         this.unsubscribeWorkday?.();
         this.unsubscribeWorkday = undefined;
         this.unsubscribeCoding?.();
