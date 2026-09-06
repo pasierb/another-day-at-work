@@ -18,7 +18,7 @@ The game SHALL create a fresh workday at 09:00 with Stamina, PO Happiness, Syste
 - **THEN** all time and resource values return to their configured initial values and the workday returns to its configured initial running state
 
 ### Requirement: Workday time advances deterministically
-The game SHALL advance workday time from 09:00 toward 17:00 according to one configurable conversion between elapsed real time and elapsed game time, and SHALL clamp the clock at 17:00.
+The game SHALL advance authoritative run time according to one configurable conversion between elapsed real time and elapsed game time, wrapping the displayed clock from 17:00 to 09:00 on the next numbered day until collapse.
 
 #### Scenario: Running time advances
 - **WHEN** a running workday receives a positive elapsed-time update
@@ -26,7 +26,7 @@ The game SHALL advance workday time from 09:00 toward 17:00 according to one con
 
 #### Scenario: A large update crosses the end of the day
 - **WHEN** an elapsed-time update would advance the clock beyond 17:00
-- **THEN** the clock becomes exactly 17:00 and subsequent updates do not advance it further
+- **THEN** the clock continues from 09:00 on the next numbered day and total run time remains monotonic
 
 #### Scenario: Equal updates produce equal results
 - **WHEN** two fresh workdays use the same configuration and receive the same sequence of elapsed-time updates
@@ -44,7 +44,7 @@ The game SHALL support independently identified pause reasons and SHALL advance 
 - **THEN** the workday remains paused
 
 #### Scenario: The final pause is released
-- **WHEN** the last active pause reason is resumed and the workday has not reached 17:00
+- **WHEN** the last active pause reason is resumed before collapse
 - **THEN** later elapsed-time updates advance the workday again
 
 ### Requirement: Resource mutations remain within their bounds
@@ -101,15 +101,15 @@ The workstation SHALL display the current time, day progress, Stamina, PO Happin
 - **THEN** it stops observing and advancing that scene's workday state
 
 ### Requirement: Gameplay actions can spend workday time
-The game SHALL provide an explicit action-time mutation that advances the workday by a non-negative amount of game time independently of passive elapsed-real-time updates and SHALL clamp the result at 17:00.
+The game SHALL provide an explicit action-time mutation that advances the run by a non-negative amount of game time independently of passive elapsed-real-time updates, including across day boundaries.
 
-#### Scenario: An action spends time during a decision pause
-- **WHEN** a choice spends a positive number of game minutes while its decision pause is active
-- **THEN** the workday clock advances by that game-time cost and the decision pause remains active
+#### Scenario: An action spends time during a live decision
+- **WHEN** a choice spends a positive number of game minutes
+- **THEN** the workday clock and all due consequences advance by that game-time cost
 
 #### Scenario: An action cost crosses the end of the day
 - **WHEN** an action's game-time cost would move the clock beyond 17:00
-- **THEN** the clock becomes exactly 17:00 and day progress becomes complete
+- **THEN** the remaining cost continues from 09:00 on the next day after overnight processing
 
 #### Scenario: An invalid action-time cost is supplied
 - **WHEN** an action-time mutation receives a negative or non-finite amount

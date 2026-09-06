@@ -1,5 +1,15 @@
 # Another Day at Work
-### Game Design Document — v0.1
+### Game Design Document — v0.2
+
+## Managed Collapse Recalibration
+
+The player does not win the workday. They manage an escalating stream of sticky, live notifications until Stamina, PO Happiness, System Stability, or a foreshadowed hidden health risk collapses. The ending celebrates how the failure happened rather than awarding a victory score.
+
+At 17:00 the run continues into another day. Stamina and personal needs recover partially, while stakeholder damage, production damage, Technical Debt, stimulant history, urgent alerts, unfinished work, and delayed consequences carry forward. Each later day schedules and escalates work faster.
+
+The normal clock runs at two game minutes per real second. A typical complete run should last four to seven real minutes. Notification decisions never pause time; explicit pause, browser visibility, and first-run guidance remain safe pauses.
+
+This section supersedes the earlier single-day salvation, paused-decision, recoverable-zero, and success-ending language retained below as historical design context.
 
 ## 1. High Concept
 

@@ -117,7 +117,7 @@ The workstation laptop SHALL display the selected task identity and progress, bo
 - **THEN** the laptop presents an all-tasks-complete state and keeps both coding modes unavailable
 
 ### Requirement: Opening an interruption decision suspends AI work safely
-The game SHALL pause planning and generation through the common workday pause ownership while an interruption decision is open, SHALL preserve an already presented batch if its task and run remain valid, and SHALL never execute a review action implicitly when the decision closes.
+The game SHALL stop planning and generation while an interruption decision is open without pausing authoritative workday time, SHALL preserve an already presented batch if its task and run remain valid, and SHALL never execute a review action implicitly when the decision closes.
 
 #### Scenario: A held input spans a decision
 - **WHEN** a former coding input remains physically held while an interruption decision opens and resolves

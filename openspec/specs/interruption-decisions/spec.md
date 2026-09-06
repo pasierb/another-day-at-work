@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Provide the first complete interruption decision loop through typed event content, visible active alerts, paused trade-off decisions, and deterministic immediate consequences.
+Provide the interruption decision loop through typed event content, flooding active alerts, live trade-off decisions, and deterministic consequences.
 
 ## Requirements
 
@@ -62,12 +62,12 @@ The alerts region SHALL display every unresolved representative interruption wit
 - **WHEN** the player activates an unresolved alert while no other decision is open
 - **THEN** that alert's decision is presented
 
-### Requirement: A decision exclusively pauses active play
-The game SHALL present at most one decision at a time, SHALL pause passive workday advancement and coding while it is open, and SHALL not allow dismissal without resolving a choice.
+### Requirement: A decision remains live under pressure
+The game SHALL present at most one decision at a time, SHALL continue passive workday advancement and alert scheduling while it is open, and SHALL not allow dismissal without resolving a choice.
 
 #### Scenario: A decision opens during coding
 - **WHEN** the player opens an interruption while coding input is active
-- **THEN** coding stops, passive workday advancement pauses, and the selected event's copy and choices are shown
+- **THEN** coding stops, passive workday advancement continues, and the selected event's copy and choices are shown
 
 #### Scenario: Another alert is activated behind the decision
 - **WHEN** the player attempts to activate another alert while a decision is already open
@@ -78,7 +78,7 @@ The game SHALL present at most one decision at a time, SHALL pause passive workd
 - **THEN** the decision remains open and the event remains unresolved
 
 ### Requirement: A selected choice resolves exactly once
-The game SHALL apply one selected choice's declared game-time, resource, and Focus effects, remove its interruption from the active alerts, and release only the decision-owned pause exactly once.
+The game SHALL apply one selected choice's declared game-time, resource, and Focus effects atomically, remove its interruption from the active alerts, and evaluate collapse exactly once.
 
 #### Scenario: A choice is selected
 - **WHEN** the player activates an available choice for the open interruption
@@ -88,13 +88,9 @@ The game SHALL apply one selected choice's declared game-time, resource, and Foc
 - **WHEN** repeated input attempts to activate a choice after its event has begun or completed resolution
 - **THEN** no effect is applied more than once and no second resolution is recorded
 
-#### Scenario: Another pause reason is active
-- **WHEN** a decision resolves while an unrelated pause reason remains active
-- **THEN** the decision-owned pause is released but the workday remains paused
-
-#### Scenario: Play resumes after resolution
-- **WHEN** the decision-owned pause was the final pause reason and the workday has not ended
-- **THEN** passive time may advance again, but coding remains stopped until the player performs a fresh coding press
+#### Scenario: Play continues after resolution
+- **WHEN** a decision resolves without causing collapse
+- **THEN** passive time keeps advancing, but coding remains stopped until the player performs a fresh coding press
 
 ### Requirement: Interruption choices support future consequences
 The game SHALL allow interruption choice content to declare validated immediate, delayed, and probabilistic effects that can be inspected without constructing the workstation scene, and the decision SHALL become resolved before any deadlines crossed by its action time are processed.

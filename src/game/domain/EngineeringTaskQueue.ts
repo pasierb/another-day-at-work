@@ -43,6 +43,7 @@ export interface EngineeringTaskQueueSnapshot {
     readonly selectedTaskId: string | null;
     readonly selectedTask: EngineeringTaskSnapshot | null;
     readonly completedTaskIds: readonly string[];
+    readonly runCompletedTaskIds: readonly string[];
     readonly pendingDecision: Readonly<{ taskId: string; definition: TaskDecisionDefinition }> | null;
 }
 
@@ -90,6 +91,7 @@ export class EngineeringTaskQueue {
     private progress = new Map<string, number>();
     private selectedId: string | null = null;
     private completed: string[] = [];
+    private runCompleted: string[] = [];
     private triggered = new Set<string>();
     private pendingTaskId: string | null = null;
     private readonly observers = new Set<Observer>();
@@ -114,6 +116,7 @@ export class EngineeringTaskQueue {
         const pendingTask = tasks.find(task => task.id === this.pendingTaskId);
         return Object.freeze({ tasks, selectedTaskId: this.selectedId, selectedTask,
             completedTaskIds: Object.freeze([...this.completed]),
+            runCompletedTaskIds: Object.freeze([...this.runCompleted,...this.completed]),
             pendingDecision: pendingTask?.midpointDecision
                 ? Object.freeze({ taskId: pendingTask.id, definition: pendingTask.midpointDecision }) : null });
     }
@@ -185,8 +188,20 @@ export class EngineeringTaskQueue {
         this.progress = new Map(this.catalog.map(task => [task.id, 0]));
         this.selectedId = this.catalog[0]?.id ?? null;
         this.completed = [];
+        this.runCompleted = [];
         this.triggered = new Set();
         this.pendingTaskId = null;
+        this.notify();
+    }
+
+    beginNextDay (dayIndex: number): void {
+        if (!Number.isInteger(dayIndex) || dayIndex < 2) throw new RangeError('Next day index must be at least two.');
+        this.runCompleted.push(...this.completed.map(id=>`day-${dayIndex-1}:${id}`));
+        for (const id of this.completed) this.progress.set(id, 0);
+        this.completed = [];
+        this.triggered = new Set([...this.triggered].filter(id=>(this.progress.get(id)??0)>0));
+        this.pendingTaskId = null;
+        if (!this.selectedId || (this.progress.get(this.selectedId)??0)>=100) this.selectedId=this.catalog[0]?.id??null;
         this.notify();
     }
 

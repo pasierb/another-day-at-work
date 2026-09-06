@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Make interruptions arrive and worsen predictably over authoritative game time while remaining reproducible, capacity-bound, and safely paused during decisions.
+Make interruptions arrive and worsen predictably over authoritative game time while remaining reproducible, backlog-visible, and live during decisions.
 
 ## Requirements
 
@@ -33,11 +33,11 @@ The game SHALL filter interruption definitions against an immutable snapshot of 
 - **WHEN** a definition declares a PO Happiness weight modifier and a selection occurs with a matching resource value
 - **THEN** its effective weight changes by the declared bounded amount before the seeded draw
 
-### Requirement: Scheduled activity follows game time and pause state
-The game SHALL evaluate spawning and escalation against elapsed game time, SHALL perform no scheduler transition while active play is paused, and SHALL stop creating transitions once the workday is complete.
+### Requirement: Scheduled activity follows continuous run time and explicit pause state
+The game SHALL evaluate spawning and escalation against authoritative run time, SHALL continue while notification and task choices are visible, SHALL freeze only for explicit, guidance, or browser-visibility pauses, and SHALL stop after collapse.
 
 #### Scenario: Passive time is paused
-- **WHEN** the run or decision layer is paused and scene updates continue
+- **WHEN** an explicit, guidance, or browser-visibility pause is active and scene updates continue
 - **THEN** no interruption spawns or escalates
 
 #### Scenario: A decision spends action time
@@ -45,11 +45,11 @@ The game SHALL evaluate spawning and escalation against elapsed game time, SHALL
 - **THEN** the open decision resolves before due scheduler transitions are processed in chronological order
 
 #### Scenario: The workday ends
-- **WHEN** elapsed game time reaches the configured end of day
-- **THEN** no later spawn, escalation, or follow-up transition is activated
+- **WHEN** elapsed game time reaches 17:00 without collapse
+- **THEN** scheduling continues in the next day's morning band with its compounded interval
 
-### Requirement: Active-event capacity is deterministic
-The game SHALL enforce a positive configurable active-event limit and retain due events in a deterministic pending order when no active slot is available.
+### Requirement: Logical event pressure is independent of presentation capacity
+The game SHALL keep due events active and escalating up to a high safety bound while presentation shows a deterministic severity-and-age page of actionable sticky notifications and exposes the remainder through a backlog view.
 
 #### Scenario: The active queue is full
 - **WHEN** an event becomes due while the active-event limit has been reached
@@ -196,5 +196,5 @@ The scheduler SHALL apply configured flood and quiet-period guardrails using aut
 - **THEN** no invalid event is forced and the next guardrail evaluation remains deterministic
 
 #### Scenario: Scheduling is paused
-- **WHEN** a decision or run pause prevents authoritative game time from advancing
+- **WHEN** an explicit run pause prevents authoritative game time from advancing
 - **THEN** flood and quiet-period guardrail durations do not advance

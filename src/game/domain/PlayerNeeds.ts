@@ -199,6 +199,15 @@ export class PlayerNeeds {
         return this.snapshot;
     }
 
+    beginNextDay (authoritativeElapsedGameMs: number, values: Readonly<Record<NeedId, number>>): PlayerNeedsSnapshot {
+        if (!Number.isFinite(authoritativeElapsedGameMs) || authoritativeElapsedGameMs < this.elapsedGameMs) throw new RangeError('New-day time must be monotonic.');
+        this.elapsedGameMs = authoritativeElapsedGameMs;
+        for (const id of NEED_ORDER) this.values[id] = clamp(values[id], this.config.needs[id].minimum, this.config.needs[id].maximum);
+        this.criticalEpisodes.clear();
+        this.notify();
+        return this.snapshot;
+    }
+
     mutateNeed (id: NeedId, amount: number): NeedMutationResult {
         if (!NEED_ORDER.includes(id)) throw new TypeError(`Unknown need ${id}.`);
         if (!Number.isFinite(amount)) throw new TypeError('Need mutation must be finite.');

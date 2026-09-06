@@ -21,9 +21,9 @@ The game SHALL use a consistent authored palette, typography hierarchy, cards, m
 - **WHEN** enabled, hovered or pressed, selected, and disabled controls are shown
 - **THEN** each state is visually distinct and disabled controls do not imply successful interaction
 
-#### Scenario: Results are presented after the workday
+#### Scenario: Results are presented after collapse
 - **WHEN** the results view opens
-- **THEN** its ending, explanation, score hierarchy, and restart action use the same presentation language as the workstation
+- **THEN** its authored loss ending, evidence-based autopsy, survival time, and restart action use the same presentation language as the workstation without a score
 
 ### Requirement: Workstation environment reflects escalating pressure
 The workstation SHALL derive a deterministic visual-stress stage from game time, active-alert pressure, and Technical Debt, and SHALL use that stage to select authored environment, character, lighting, and clutter variants without changing domain state.

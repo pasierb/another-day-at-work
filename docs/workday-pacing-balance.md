@@ -1,13 +1,11 @@
-# Workday pacing balance matrix
+# Managed-collapse pacing evidence
 
-The fixed replay seeds are `20260906`, `4821`, `3178`, and `911`. Each seed runs the `balanced`, `productive`, and `risky` deterministic policies against both the normal and developer profiles. Run `npx tsx scripts/run-balance-matrix.ts` to emit the complete immutable reports.
+The fixed replay seeds are `20260906`, `4821`, `3178`, and `911`. Each seed runs the `balanced`, `productive`, and `risky` deterministic policies. Run `npm run balance` to reproduce the reports.
 
-The normal profile advances 0.5 game minutes per real second, making an uninterrupted eight-hour workday exactly 16 real minutes. The developer profile advances 8 game minutes per real second and retains the same catalog, eligibility, ordering, actions, and rules. Decisions and inactive-tab pauses are authoritative-time freezes and are excluded from this clock calculation.
+The normal profile advances two game minutes per real second, so one uninterrupted 09:00–17:00 day lasts four real minutes. Reaching 17:00 is not an ending: unfinished pressure carries forward, low and medium alerts worsen overnight, tasks replenish, and only partial personal recovery is granted. Spawn and escalation intervals shorten on later days. Decisions remain live while the clock, notification scheduler, and consequences continue.
 
-## Verification evidence
+The September 2026 calibration produced normal-profile collapse times of 227, 232, 385, 401, 407, 407, 407, 425, 1172, 1652, 1652, and 1655 seconds. The median complete run was 407 seconds (6:47), inside the four-to-seven-minute target. Different policies and seeds intentionally create a long tail rather than a guaranteed day count.
 
-On 2026-09-06 the complete 24-run matrix (12 runs per profile) produced only exact `28,800,000` ms terminal times. Across each profile, morning produced 24 total spawns versus 141 during main chaos; peak pressure was 5 against a ceiling of 6; maximum quiet duration was 32 game minutes against a 38-minute guardrail. Eight representative runs exercised recovery windows, while deliberately risky policies retained the possibility of collapse. Two consecutive complete matrix serializations had the identical SHA-256 digest `e436d0623f941c80f166ba4a14a9f185d6660c95af237a15343c4b9a103e2896`.
+There is no victory or total score. A run ends at the first zero-value visible resource or at hidden health-risk collapse from stimulant use. The results screen selects one of twelve authored endings, prioritizes simultaneous causes, and presents an evidence-based autopsy.
 
-Accelerated browser coverage visited all five bands, crossed a boundary by action-time jump, held authoritative time stable through a decision pause, exercised flood deferral and an empty quiet deadline, recovered a critical Toilet Need, and stopped cleanly at 17:00. The diagnostics overlay was non-interactive and in-bounds at 1280×720 and a 360×640 touch viewport, was removed on shutdown, and was absent with default environment settings. No browser console or page errors were observed.
-
-A normal-profile browser run using legal coding, task-decision, bathroom, and booster actions completed at exactly 17:00 in 885,179 ms (14 minutes 45 seconds). It maintained a meaningful available action throughout, exercised proactive critical-resource recovery, and produced no console or page errors. A deliberately critical accelerated scenario separately confirmed that the Toilet SEV-1 state remained recoverable.
+Browser playtesting verified that a decision does not stop time, thirteen simultaneous alerts expose an explicit backlog with paged access, and an outage transitions to the collapse autopsy without console errors or missing assets. Headless WebGL FPS remained limited by SwiftShader and is treated as an environmental regression signal rather than a real-device measurement.

@@ -9,10 +9,10 @@ import { ConsequenceQueue } from '../domain/ConsequenceQueue';
 import { EffectEngine } from '../domain/EffectEngine';
 import { CodingDisruptionLedger } from '../domain/CodingDisruptionLedger';
 import type { ConsequenceFeedback,Effect } from '../domain/effects';
-import { createRunContext, InterruptionSession, type ActiveInterruptionSnapshot, type InterruptionChoiceDefinition,
+import { createRunContext, InterruptionSession, type ActiveInterruptionSnapshot,
     type InterruptionSessionSnapshot, type TransitionBatch } from '../domain/interruptions';
 import { REGIONS } from '../ui/layout';
-import { actionButton, heading, meter, panel, roundedSurface, toolbarActionButton, type ActionView, type MeterView } from '../ui/primitives';
+import { heading, meter, panel, roundedSurface, toolbarActionButton, type ActionView, type MeterView } from '../ui/primitives';
 import { COLORS, DEPTH, TYPE } from '../ui/theme';
 import { WorkdaySession } from '../domain/WorkdaySession';
 import { DEVELOPER_PACING_PROFILE,NORMAL_PACING_PROFILE } from '../domain/WorkdayPacing';
@@ -23,7 +23,7 @@ import { createGuidanceOverlay, type GuidanceOverlayView } from '../presentation
 import { InteractionLifecycle, type InteractionCancelReason } from '../presentation/InteractionLifecycle';
 import { installWorkstationDiagnostics } from '../presentation/PlaytestDiagnostics';
 import { presentationTexture, STRESS_BUNDLES } from '../presentation/assets';
-import { interruptionIdentity,notificationIdentity,severityMarker } from '../presentation/identities';
+import { notificationIdentity } from '../presentation/identities';
 import { configureHighDpiScene } from '../presentation/HighDpiRendering';
 
 const textStyle = { fontFamily: TYPE.family, fontSize: TYPE.body, color: COLORS.text } as const;
@@ -75,6 +75,7 @@ export class Workstation extends Scene {
     private alertsContent!: GameObjects.Container;
     private floatingAlerts?:GameObjects.Container;
     private alertsCountText!: GameObjects.Text;
+    private alertPage=0;
     private decisionOverlay?: GameObjects.Container;
     private taskRows?: GameObjects.Container;
     private taskFilter:'all'|'current'|'urgent'='all';
@@ -292,7 +293,8 @@ export class Workstation extends Scene {
         heading(this, root, '✉  Messages & alerts');
         const tabs=[{x:12,w:56,label:'ALL',active:true},{x:72,w:76,label:'SLACK'},{x:152,w:88,label:'SYSTEM'}];
         tabs.forEach(item=>root.add([this.add.rectangle(item.x,42,item.w,28,item.active?0x286aa1:0x202d3d).setOrigin(0).setStrokeStyle(1,item.active?0x70b7ef:0x34485d),this.add.text(item.x+item.w/2,56,item.label,{...mutedStyle,fontSize:9,color:item.active?'#ffffff':'#aebdca',fontStyle:'bold'}).setOrigin(.5)]));
-        this.alertsCountText = this.add.text(16, 78, '', {...mutedStyle,fontSize:9});
+        this.alertsCountText = this.add.text(16, 78, '', {...mutedStyle,fontSize:9,color:'#8ac5ff'}).setInteractive({useHandCursor:true});
+        this.alertsCountText.on(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>{this.alertPage++;this.renderInterruptions(this.interruptions.snapshot);});
         this.alertsContent = this.add.container(REGIONS.alerts.x, REGIONS.alerts.y).setDepth(DEPTH.controls);
         this.floatingAlerts=this.add.container(0,0).setDepth(DEPTH.controls);
         root.add(this.alertsCountText);
@@ -305,12 +307,15 @@ export class Workstation extends Scene {
         if (!this.alertsContent) return;
         if(this.initializedAlerts){snapshot.active.filter(item=>!this.knownAlerts.has(item.id)).forEach(item=>this.audio?.cue(severityRanks[item.severity]>=2?'incident':'message',`alert:${item.id}:${item.activationSequence}`));}else this.initializedAlerts=true;
         this.knownAlerts=new Set(snapshot.active.map(item=>item.id));
-        this.alertsCountText.setText(`${snapshot.active.length} ACTIVE  ·  ${this.scheduler?.snapshot.pendingCount ?? 0} PENDING`);
+        const stickyLimit=this.scale.parentSize.width<700?this.session.profile.presentation.touchStickyLimit:this.session.profile.presentation.desktopStickyLimit;
         this.alertsContent.removeAll(true);
         this.floatingAlerts?.removeAll(true);
         const ordered = [...snapshot.active].sort((a, b) => severityRanks[b.severity] - severityRanks[a.severity]
             || a.activationGameMs - b.activationGameMs || a.activationSequence - b.activationSequence);
-        ordered.forEach((event, index) => {
+        const pages=Math.max(1,Math.ceil(ordered.length/stickyLimit));this.alertPage%=pages;
+        const visible=ordered.slice(this.alertPage*stickyLimit,(this.alertPage+1)*stickyLimit),backlog=Math.max(0,ordered.length-visible.length)+(this.scheduler?.snapshot.pendingCount??0);
+        this.alertsCountText.setText(`${snapshot.active.length} ACTIVE · ${backlog} BACKLOG · VIEW ${this.alertPage+1}/${pages}`);
+        visible.forEach((event, index) => {
             const y = 118 + index * 92;
             const color = severityColors[event.severity];
             const urgent = severityRanks[event.severity] >= severityRanks.high;
@@ -337,13 +342,12 @@ export class Workstation extends Scene {
         if (this.interruptions.snapshot.openInterruption || this.taskQueue.snapshot.pendingDecision) return;
         this.cancelHeldCodingForDecision();
         if (!this.interruptions.open(interruptionId)) return;
-        this.workday.pause(DECISION_PAUSE_REASON);
         this.synchronizeCodingAvailability();
     }
 
     private addFloatingInterruption(event:ActiveInterruptionSnapshot,index:number):void{
         if(!this.floatingAlerts)return;
-        const slots=[{x:282,y:100,a:-1},{x:758,y:104,a:1},{x:292,y:238,a:1},{x:748,y:242,a:-1}] as const,slot=slots[index%slots.length];
+        const slots=[{x:282,y:100,a:-1},{x:758,y:104,a:1},{x:292,y:238,a:1},{x:748,y:242,a:-1},{x:254,y:366,a:-2},{x:786,y:366,a:2},{x:270,y:490,a:1},{x:770,y:490,a:-1}] as const,slot=slots[index%slots.length];
         const identity=notificationIdentity(event.id,event.category),urgent=severityRanks[event.severity]>=severityRanks.high;
         const fill=urgent?0x9f2329:event.category==='product-owner'?0xf7dce5:0xf4f6f8,stroke=urgent?0xff665f:event.category==='product-owner'?0xff7198:0xaeb9c3;
         const ink=urgent?'#ffffff':'#172331',sub=urgent?'#ffd6d2':'#5c6c7b';
@@ -374,31 +378,11 @@ export class Workstation extends Scene {
         void event;
     }
 
-    private openTaskDecision():void{const pending=this.taskQueue.snapshot.pendingDecision;if(!pending)return;this.cancelHeldCodingForDecision();this.workday.pause(TASK_DECISION_PAUSE_REASON);const overlay=this.add.container(0,0).setDepth(100);const scrim=this.add.rectangle(0,0,1280,720,0x05080d,.78).setOrigin(0).setInteractive();const card=this.add.rectangle(280,92,720,536,COLORS.surfaceRaised).setOrigin(0).setStrokeStyle(2,COLORS.blue);overlay.add([scrim,card,this.add.text(320,126,'ENGINEERING DECISION',{...mutedStyle,color:'#8ac5ff',fontStyle:'bold'}),this.add.text(320,154,pending.definition.title,{...textStyle,fontSize:25,fontStyle:'bold'}),this.add.text(320,196,pending.definition.copy,{...textStyle,fontSize:16,wordWrap:{width:640}}),this.add.text(320,238,'Choose a response · coding requires a fresh press',mutedStyle)]);pending.definition.choices.forEach((choice,index)=>this.addTaskDecisionChoice(overlay,choice,320,274+index*148));this.decisionOverlay=overlay;this.renderTaskQueue(this.taskQueue.snapshot);this.synchronizeCodingAvailability();}
+    private openTaskDecision():void{const pending=this.taskQueue.snapshot.pendingDecision;if(!pending)return;this.cancelHeldCodingForDecision();const overlay=this.add.container(0,0).setDepth(100);const scrim=this.add.rectangle(0,0,1280,720,0x05080d,.7).setOrigin(0).setInteractive();const card=this.add.rectangle(280,92,720,536,COLORS.surfaceRaised).setOrigin(0).setStrokeStyle(2,COLORS.blue);overlay.add([scrim,card,this.add.text(320,126,'ENGINEERING DECISION · CLOCK STILL RUNNING',{...mutedStyle,color:'#f5b84b',fontStyle:'bold'}),this.add.text(320,154,pending.definition.title,{...textStyle,fontSize:25,fontStyle:'bold'}),this.add.text(320,196,pending.definition.copy,{...textStyle,fontSize:16,wordWrap:{width:640}}),this.add.text(320,238,'Choose now · alerts keep aging behind this panel',mutedStyle)]);pending.definition.choices.forEach((choice,index)=>this.addTaskDecisionChoice(overlay,choice,320,274+index*148));this.decisionOverlay=overlay;this.renderTaskQueue(this.taskQueue.snapshot);this.synchronizeCodingAvailability();}
 
     private addTaskDecisionChoice(overlay:GameObjects.Container,choice:TaskDecisionChoiceDefinition,x:number,y:number):void{const background=this.add.rectangle(x,y,640,126,COLORS.surface,1).setOrigin(0).setStrokeStyle(1,COLORS.blue).setInteractive({useHandCursor:true});background.once(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.resolveTaskChoice(choice.id));overlay.add([background,this.add.text(x+18,y+15,choice.label,{...textStyle,fontSize:15,fontStyle:'bold'}),this.add.text(x+622,y+16,`${choice.gameMinutes} MIN`,{...mutedStyle,color:'#8ac5ff',fontStyle:'bold'}).setOrigin(1,0),this.add.text(x+18,y+45,choice.description,{...mutedStyle,wordWrap:{width:590}}),this.add.text(x+18,y+88,[`Clock +${choice.gameMinutes}m`,...choice.effects.map(effect=>this.describeEffect(effect))].join('  ·  '),{...mutedStyle,color:'#cbd5e1',wordWrap:{width:600}})]);}
 
-    private resolveTaskChoice(choiceId:string):void{const choice=this.taskQueue.resolvePendingDecision(choiceId);if(!choice)return;this.workday.spendGameMinutes(choice.gameMinutes);this.effectEngine.execute(choice.effects,`task-decision:${choiceId}`);this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);this.workday.resume(TASK_DECISION_PAUSE_REASON);this.decisionOverlay?.destroy(true);this.decisionOverlay=undefined;this.cancelHeldCodingForDecision();this.synchronizeWorld();this.renderTaskQueue(this.taskQueue.snapshot);this.enterResultsIfComplete();}
-
-    private addDecisionChoice (overlay: GameObjects.Container, choice: InterruptionChoiceDefinition, x: number, y: number, disabled: boolean,height=126): void {
-        const compact=height<100;const background = this.add.rectangle(x, y, 640, height, disabled ? COLORS.surfaceMuted : COLORS.surface, 1).setOrigin(0).setStrokeStyle(1, disabled ? COLORS.disabled : COLORS.blue);
-        if (!disabled) {
-            background.setInteractive({ useHandCursor: true });
-            background.once(Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.resolveChoice(choice.id));
-        }
-        overlay.add([
-            background,
-            this.add.text(x + 18, y + 15, choice.label, { ...textStyle, fontSize: 15, fontStyle: 'bold' }),
-            this.add.text(x + 622, y + 16, `${choice.gameMinutes} MIN`, { ...mutedStyle, color: '#8ac5ff', fontStyle: 'bold' }).setOrigin(1, 0),
-            this.add.text(x + 18, y + (compact?37:45), choice.description, { ...mutedStyle, wordWrap: { width: 590 } }),
-            this.add.text(x + 18, y + (compact?53:88), this.describeEffects(choice), { ...mutedStyle, color: '#cbd5e1', wordWrap: { width: 600 } })
-        ]);
-    }
-
-    private describeEffects (choice: InterruptionChoiceDefinition): string {
-        const effects = choice.effects.map(effect => this.describeEffect(effect));
-        return [`Clock +${choice.gameMinutes}m`, ...effects].join('  ·  ');
-    }
+    private resolveTaskChoice(choiceId:string):void{const choice=this.taskQueue.resolvePendingDecision(choiceId);if(!choice)return;this.session.advanceGameMs(choice.gameMinutes*60_000,true);this.effectEngine.execute(choice.effects,`task-decision:${choiceId}`);this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);this.decisionOverlay?.destroy(true);this.decisionOverlay=undefined;this.cancelHeldCodingForDecision();this.synchronizeWorld();this.renderTaskQueue(this.taskQueue.snapshot);this.session.finalize(`task:${choiceId}`);this.enterResultsIfComplete();}
 
     private describeEffect(effect:Effect):string{if(effect.type==='resource')return `${effect.amount>=0?'+':''}${effect.amount} ${effect.resource.replace(/([A-Z])/g,' $1')}`;if(effect.type==='focus')return `-${Math.round(effect.reduction*100)}% Focus`;if(effect.type==='task-progress')return `-${effect.reduction}% task progress`;if(effect.type==='coding-disruption')return `${Math.round(effect.speedFactor*100)}% coding for ${Math.round(effect.durationGameMs/60000)}m`;if(effect.type==='delayed')return `Future risk in ${Math.round(effect.delayGameMs/60000)}m`;return `${Math.round(effect.chance*100)}% uncertain outcome`;}
 
@@ -406,26 +390,16 @@ export class Workstation extends Scene {
         const pending = this.interruptions.beginResolution(choiceId);
         if (!pending) return;
         this.audio?.cue('choice',`choice:${pending.interruptionId}:${choiceId}`);
-        this.workday.spendGameMinutes(pending.choice.gameMinutes);
+        this.session.advanceGameMs(pending.choice.gameMinutes*60_000,true);
         this.effectEngine.execute(pending.choice.effects,pending.interruptionId);
         this.interruptions.finalizeResolution(pending.interruptionId);
         this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);
         this.reconcileStaleWarnings();
         this.scheduler.resolved(pending.interruptionId, candidate => this.activateCandidate(candidate));
-        this.workday.resume(DECISION_PAUSE_REASON);
         this.synchronizeCodingAvailability();
         if (!this.workday.snapshot.isPaused) this.synchronizeWorld();
+        this.session.finalize(pending.interruptionId);
         this.enterResultsIfComplete();
-    }
-
-    private postponeInterruption (id: string): void {
-        if (this.decisionOverlay || this.workday.snapshot.isPaused) return;
-        if(this.interruptions.postpone(id))this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);
-    }
-
-    private ignoreInterruption (id: string): void {
-        if (this.decisionOverlay || this.workday.snapshot.isPaused) return;
-        this.applyTransitionBatch(this.interruptions.ignore(id));this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);
     }
 
     private synchronizeInterruptions (): void {
@@ -538,11 +512,16 @@ export class Workstation extends Scene {
             this.applyNeedCodingModifiers();
         }
         this.boosterFeedbackText?.setText(`${result.feedback} ${this.boosters.config.boosters[id].label} #${result.consumptionCount} consumed.`);
+        const risk=this.session.healthRisk,thresholds=this.session.profile.healthRisk;
+        if(risk>=thresholds.criticalWarning)this.showNeedFeedback('Heart-rate alert: your hands are filing their own incident report.');
+        else if(risk>=thresholds.warning)this.showNeedFeedback('Your pulse now has deploy-frequency observability.');
         this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);
         this.reconcileStaleWarnings();
         this.synchronizeInterruptions();
         this.synchronizeCodingAvailability();
         this.updateBoosterAvailability();
+        this.session.finalize(`${id} overuse`);
+        this.enterResultsIfComplete();
     }
 
     private boosterContext () {
@@ -576,8 +555,7 @@ export class Workstation extends Scene {
         try {
             this.cancelHeldCodingForDecision();
             this.coding.reduceFocus(this.playerNeeds.config.bathroomFocusReduction);
-            this.workday.spendGameMinutes(this.playerNeeds.config.bathroomGameMinutes);
-            this.synchronizeWorld();
+            this.session.advanceGameMs(this.playerNeeds.config.bathroomGameMinutes*60_000);
             this.playerNeeds.relieve('toilet');
             this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);
             this.reconcileStaleWarnings();
@@ -615,7 +593,7 @@ export class Workstation extends Scene {
         const debt = snapshot.resources.technicalDebt;
         this.resourceViews.technicalDebt.value.setText(`${Math.round(debt)}%`);
         this.resourceViews.technicalDebt.meter.setValue(debt / 100);
-        this.clockText.setText(`${String(snapshot.clockHour).padStart(2, '0')}:${String(snapshot.clockMinute).padStart(2, '0')}`);
+        this.clockText.setText(`DAY ${snapshot.dayIndex}  ·  ${String(snapshot.clockHour).padStart(2, '0')}:${String(snapshot.clockMinute).padStart(2, '0')}`);
         this.dayProgressMeter.setValue(snapshot.dayProgress);
         this.renderPacingOverlay();
         this.updateToiletAvailability();
@@ -747,5 +725,5 @@ export class Workstation extends Scene {
         this.events.off(Scenes.Events.SHUTDOWN, this.cleanupWorkday, this);
         this.events.off(Scenes.Events.DESTROY, this.cleanupWorkday, this);
     }
-    private enterResultsIfComplete():void{if(this.resultsStarted||!this.workday.snapshot.isDayComplete)return;const result=this.session.finalize();if(!result)return;this.resultsStarted=true;this.advancesWorkday=false;const runId=window.__WORKDAY_PLAYTEST__?.getSnapshot().runId;this.lifecycle?.cancel('results');this.input.enabled=false;this.scene.start('Results',{result,runId});}
+    private enterResultsIfComplete():void{if(this.resultsStarted)return;const result=this.session.finalize();if(!result)return;this.resultsStarted=true;this.advancesWorkday=false;const runId=window.__WORKDAY_PLAYTEST__?.getSnapshot().runId;this.lifecycle?.cancel('results');this.input.enabled=false;this.scene.start('Results',{result,runId});}
 }

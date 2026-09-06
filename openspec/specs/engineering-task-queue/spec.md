@@ -67,7 +67,7 @@ The game SHALL complete a task exactly once at 100 percent, apply its declared r
 - **THEN** no task remains selected, the completed-work history contains every task once, and coding becomes unavailable
 
 ### Requirement: A task midpoint decision triggers once
-The game SHALL support a task-specific decision at a configured progress threshold, SHALL stop exactly at that threshold, and SHALL pause coding and passive workday advancement until one declared choice resolves through the common effect behavior.
+The game SHALL support a task-specific decision at a configured progress threshold, SHALL stop coding exactly at that threshold, and SHALL keep passive workday advancement and interruptions live until one declared choice resolves through the common effect behavior.
 
 #### Scenario: Coding crosses the midpoint threshold
 - **WHEN** one coding update would advance the configured task from below its decision threshold to above it

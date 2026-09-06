@@ -16,7 +16,7 @@ export function createGuidanceOverlay (scene: Scene, onDismiss: () => void): Gui
     card.add(scene.add.text(32, 78, GUIDANCE_COPY.objective, { fontFamily: TYPE.family, fontSize: 18, color: '#8fdbca', fontStyle: 'bold', wordWrap: { width: 676 }, lineSpacing: 5 }));
     const rows = [GUIDANCE_COPY.coding, GUIDANCE_COPY.alerts, GUIDANCE_COPY.resources];
     rows.forEach((copy, index) => card.add(scene.add.text(52, 162 + index * 74, `${index + 1}  ${copy}`, { fontFamily: TYPE.family, fontSize: 15, color: COLORS.text, wordWrap: { width: 632 }, lineSpacing: 4 })));
-    card.add(scene.add.text(370, 402, 'Enter or Escape also dismisses · controls underneath are paused', { fontFamily: TYPE.family, fontSize: 11, color: COLORS.textMuted }).setOrigin(.5));
+    card.add(scene.add.text(370, 402, 'Enter or Escape dismisses this briefing · decisions stay live during play', { fontFamily: TYPE.family, fontSize: 11, color: COLORS.textMuted }).setOrigin(.5));
     const dismiss = actionButton(scene, card, GUIDANCE_LAYOUT.buttonX, GUIDANCE_LAYOUT.buttonY, GUIDANCE_LAYOUT.buttonWidth, GUIDANCE_COPY.dismiss, 'Begin at 09:00', onDismiss);
     const resize = () => { const camera = scene.cameras.main; scrim.setSize(camera.width, camera.height); };
     scene.scale.on('resize', resize);

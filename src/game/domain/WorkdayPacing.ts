@@ -32,6 +32,10 @@ export interface PacingProfile {
     readonly bands: readonly PacingBand[];
     readonly guardrails: PacingGuardrails;
     readonly simulationStepGameMs: number;
+    readonly dayScaling:Readonly<{readonly intervalMultiplier:number;readonly minimumSpawnMultiplier:number;readonly minimumEscalationMultiplier:number}>;
+    readonly overnight:Readonly<{readonly staminaRestoration:number;readonly staminaCap:number;readonly sleepiness:number;readonly toilet:number;readonly healthRiskRecovery:number}>;
+    readonly healthRisk:Readonly<{readonly coffee:number;readonly cokeZero:number;readonly warning:number;readonly criticalWarning:number;readonly collapse:number}>;
+    readonly presentation:Readonly<{readonly desktopStickyLimit:number;readonly touchStickyLimit:number}>;
     readonly balance:Readonly<{readonly initialResources:ResourceValues;readonly taskWorkPerGameMinute:number;readonly codingStaminaPerGameMinute:number;readonly bathroomGameMinutes:number;readonly bathroomFocusReduction:number;readonly coffeeStaminaRestoration:number;readonly cokeZeroStaminaRestoration:number;readonly cokeZeroToiletIncrease:number}>;
 }
 export interface PacingInterval { readonly band: PacingBand; readonly startGameMs: number; readonly endGameMs: number; readonly durationGameMs: number }
@@ -47,20 +51,24 @@ const band = (id:PacingBandId,start:string,end:string,min:number,max:number,weig
 const guardrails:PacingGuardrails=Object.freeze({floodPressure:6,floodDeferralGameMs:5*60_000,maximumQuietGameMs:38*60_000,minimumCategoryWeight:.25,maximumCategoryWeight:3});
 const balance=Object.freeze({initialResources:Object.freeze({stamina:75,poHappiness:75,systemStability:75,technicalDebt:0}),taskWorkPerGameMinute:.34,codingStaminaPerGameMinute:.18,bathroomGameMinutes:10,bathroomFocusReduction:.2,coffeeStaminaRestoration:30,cokeZeroStaminaRestoration:15,cokeZeroToiletIncrease:12});
 const normalBands=Object.freeze([
-    band('morning','09:00','10:15',24,34,{'product-owner':.7,production:.65,teammate:.8,tooling:.75,personal:.7,consequence:.7},.85,{sleepiness:.7,toilet:.8}),
-    band('normal-workload','10:15','12:00',18,27,{},1,{sleepiness:.9,toilet:1}),
-    band('lunch','12:00','13:00',25,34,{'product-owner':.7,production:.8,teammate:.75,personal:1.25},.85,{sleepiness:1.15,toilet:1.1}),
-    band('main-chaos','13:00','16:00',11,18,{'product-owner':1.25,production:1.45,teammate:1.2,tooling:1.35,consequence:1.3},1.3,{sleepiness:1.25,toilet:1.2}),
-    band('endgame','16:00','17:00',14,22,{'product-owner':1.35,production:1.2,consequence:1.25},1.15,{sleepiness:1.45,toilet:1.3})
+    band('morning','09:00','10:15',16,22,{'product-owner':.7,production:.65,teammate:.8,tooling:.75,personal:.7,consequence:.7},.85,{sleepiness:.7,toilet:.8}),
+    band('normal-workload','10:15','12:00',12,18,{},1,{sleepiness:.9,toilet:1}),
+    band('lunch','12:00','13:00',15,22,{'product-owner':.7,production:.8,teammate:.75,personal:1.25},.85,{sleepiness:1.15,toilet:1.1}),
+    band('main-chaos','13:00','16:00',7,12,{'product-owner':1.25,production:1.45,teammate:1.2,tooling:1.35,consequence:1.3},1.3,{sleepiness:1.25,toilet:1.2}),
+    band('endgame','16:00','17:00',6,10,{'product-owner':1.35,production:1.2,consequence:1.25},1.15,{sleepiness:1.45,toilet:1.3})
 ]);
 
-export const NORMAL_PACING_PROFILE:PacingProfile=createPacingProfile({id:'normal',gameMinutesPerRealSecond:.5,bands:normalBands,guardrails,balance,simulationStepGameMs:60_000});
-export const DEVELOPER_PACING_PROFILE:PacingProfile=createPacingProfile({id:'developer',gameMinutesPerRealSecond:8,bands:normalBands,guardrails,balance,simulationStepGameMs:5*60_000});
+const dayScaling=Object.freeze({intervalMultiplier:.85,minimumSpawnMultiplier:.4,minimumEscalationMultiplier:.5});
+const overnight=Object.freeze({staminaRestoration:25,staminaCap:75,sleepiness:15,toilet:0,healthRiskRecovery:10});
+const healthRisk=Object.freeze({coffee:24,cokeZero:14,warning:50,criticalWarning:75,collapse:100});
+const presentation=Object.freeze({desktopStickyLimit:8,touchStickyLimit:4});
+export const NORMAL_PACING_PROFILE:PacingProfile=createPacingProfile({id:'normal',gameMinutesPerRealSecond:2,bands:normalBands,guardrails,balance,simulationStepGameMs:60_000,dayScaling,overnight,healthRisk,presentation});
+export const DEVELOPER_PACING_PROFILE:PacingProfile=createPacingProfile({id:'developer',gameMinutesPerRealSecond:16,bands:normalBands,guardrails,balance,simulationStepGameMs:5*60_000,dayScaling,overnight,healthRisk,presentation});
 export const PACING_PROFILES:Readonly<Record<PacingProfileId,PacingProfile>>=Object.freeze({normal:NORMAL_PACING_PROFILE,developer:DEVELOPER_PACING_PROFILE});
 
 export function createPacingProfile(input:PacingProfile):PacingProfile {
     validatePacingProfile(input);
-    return Object.freeze({...input,bands:Object.freeze(input.bands.map(item=>Object.freeze({...item,categoryWeightModifiers:Object.freeze({...item.categoryWeightModifiers}),needRateModifiers:Object.freeze({...item.needRateModifiers})}))),guardrails:Object.freeze({...input.guardrails}),balance:Object.freeze({...input.balance,initialResources:Object.freeze({...input.balance.initialResources})})});
+    return Object.freeze({...input,bands:Object.freeze(input.bands.map(item=>Object.freeze({...item,categoryWeightModifiers:Object.freeze({...item.categoryWeightModifiers}),needRateModifiers:Object.freeze({...item.needRateModifiers})}))),guardrails:Object.freeze({...input.guardrails}),balance:Object.freeze({...input.balance,initialResources:Object.freeze({...input.balance.initialResources})}),dayScaling:Object.freeze({...input.dayScaling}),overnight:Object.freeze({...input.overnight}),healthRisk:Object.freeze({...input.healthRisk}),presentation:Object.freeze({...input.presentation})});
 }
 export function validatePacingProfile(profile:PacingProfile):void {
     if(profile.id!=='normal'&&profile.id!=='developer')throw new TypeError(`Unknown pacing profile ${String(profile.id)}.`);
@@ -80,14 +88,19 @@ export function validatePacingProfile(profile:PacingProfile):void {
     const g=profile.guardrails;
     if(!Number.isInteger(g.floodPressure)||g.floodPressure<1||![g.floodDeferralGameMs,g.maximumQuietGameMs,g.minimumCategoryWeight,g.maximumCategoryWeight].every(Number.isFinite)||g.floodDeferralGameMs<=0||g.maximumQuietGameMs<=0||g.minimumCategoryWeight<0||g.maximumCategoryWeight<g.minimumCategoryWeight)throw new RangeError('Invalid pacing guardrails.');
     const b=profile.balance;if(!b||!Object.values(b.initialResources).every(value=>Number.isFinite(value)&&value>=0&&value<=100)||![b.taskWorkPerGameMinute,b.codingStaminaPerGameMinute,b.bathroomGameMinutes,b.bathroomFocusReduction,b.coffeeStaminaRestoration,b.cokeZeroStaminaRestoration,b.cokeZeroToiletIncrease].every(value=>Number.isFinite(value)&&value>=0)||b.taskWorkPerGameMinute<=0||b.coffeeStaminaRestoration<=b.cokeZeroStaminaRestoration)throw new RangeError('Invalid profile-owned balance values.');
+    if(!profile.dayScaling||profile.dayScaling.intervalMultiplier<=0||profile.dayScaling.intervalMultiplier>=1||profile.dayScaling.minimumSpawnMultiplier<=0||profile.dayScaling.minimumEscalationMultiplier<=0)throw new RangeError('Invalid multi-day scaling.');
+    if(!profile.overnight||profile.overnight.staminaRestoration<0||profile.overnight.staminaCap<=0||profile.overnight.sleepiness<0||profile.overnight.toilet<0||profile.overnight.healthRiskRecovery<0)throw new RangeError('Invalid overnight recovery.');
+    if(!profile.healthRisk||!(profile.healthRisk.warning<profile.healthRisk.criticalWarning&&profile.healthRisk.criticalWarning<profile.healthRisk.collapse))throw new RangeError('Invalid health-risk thresholds.');
+    if(!profile.presentation||!Number.isInteger(profile.presentation.desktopStickyLimit)||!Number.isInteger(profile.presentation.touchStickyLimit)||profile.presentation.desktopStickyLimit<1||profile.presentation.touchStickyLimit<1)throw new RangeError('Invalid sticky presentation limits.');
 }
 export function activePacingBand(profile:PacingProfile,gameMs:number):PacingBand {
-    if(!Number.isFinite(gameMs)||gameMs<0||gameMs>WORKDAY_DURATION_MS)throw new RangeError('Pacing time must be within the workday.');
-    return profile.bands.find(item=>gameMs>=item.startGameMs&&gameMs<item.endGameMs)??profile.bands[profile.bands.length-1]!;
+    if(!Number.isFinite(gameMs)||gameMs<0)throw new RangeError('Pacing time must be non-negative.');
+    const withinDay=gameMs%WORKDAY_DURATION_MS;
+    return profile.bands.find(item=>withinDay>=item.startGameMs&&withinDay<item.endGameMs)??profile.bands[profile.bands.length-1]!;
 }
 export function splitPacingInterval(profile:PacingProfile,startGameMs:number,endGameMs:number):readonly PacingInterval[] {
-    if(!Number.isFinite(startGameMs)||!Number.isFinite(endGameMs)||startGameMs<0||endGameMs<startGameMs||endGameMs>WORKDAY_DURATION_MS)throw new RangeError('Pacing interval must be ordered within the workday.');
+    if(!Number.isFinite(startGameMs)||!Number.isFinite(endGameMs)||startGameMs<0||endGameMs<startGameMs)throw new RangeError('Pacing interval must be ordered and non-negative.');
     if(startGameMs===endGameMs)return Object.freeze([]);
-    return Object.freeze(profile.bands.filter(item=>item.endGameMs>startGameMs&&item.startGameMs<endGameMs).map(item=>{const start=Math.max(startGameMs,item.startGameMs),end=Math.min(endGameMs,item.endGameMs);return Object.freeze({band:item,startGameMs:start,endGameMs:end,durationGameMs:end-start});}));
+    const result:PacingInterval[]=[];let cursor=startGameMs;while(cursor<endGameMs){const dayStart=Math.floor(cursor/WORKDAY_DURATION_MS)*WORKDAY_DURATION_MS;const dayEnd=Math.min(endGameMs,dayStart+WORKDAY_DURATION_MS);for(const item of profile.bands){const start=Math.max(cursor,dayStart+item.startGameMs),end=Math.min(dayEnd,dayStart+item.endGameMs);if(end>start)result.push(Object.freeze({band:item,startGameMs:start,endGameMs:end,durationGameMs:end-start}));}cursor=dayEnd;}return Object.freeze(result);
 }
 export function resolvePacingProfile(id:PacingProfileId):PacingProfile{return PACING_PROFILES[id];}

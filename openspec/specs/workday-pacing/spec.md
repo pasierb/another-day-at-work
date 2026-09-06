@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Shape a complete workday into a deterministic, measurable dramatic arc that remains playable and recoverable while fitting the MVP's intended real-time session length.
+Shape consecutive workdays into a deterministic, measurable escalation that normally collapses within a four-to-seven-minute complete run.
 
 ## Requirements
 
@@ -22,11 +22,11 @@ The game SHALL define ordered, non-overlapping time bands covering the complete 
 - **THEN** the active pacing band and all game-time-based pacing deadlines remain unchanged
 
 ### Requirement: Normal and developer profiles preserve one game model
-The game SHALL provide a default normal profile calibrated toward a 10–20 minute real-time workday and a faster developer/test profile that changes time scale and explicitly profile-owned pacing values without changing game rules, content eligibility, or seeded determinism.
+The game SHALL provide a default normal profile with a four-minute uninterrupted workday and a faster developer/test profile that changes time scale and explicitly profile-owned pacing values without changing game rules, content eligibility, or seeded determinism.
 
 #### Scenario: A normal manual run reaches the end of day
 - **WHEN** a player completes a representative uninterrupted 09:00–17:00 run using the normal profile
-- **THEN** elapsed real play time falls within the 10–20 minute target range, excluding time spent in paused decisions or an inactive browser tab
+- **THEN** elapsed real time is approximately four minutes, excluding explicit or inactive-browser pauses
 
 #### Scenario: A developer run is accelerated
 - **WHEN** a full day is run with the developer/test profile
@@ -36,31 +36,31 @@ The game SHALL provide a default normal profile calibrated toward a 10–20 minu
 - **WHEN** two simulations use the same profile, seed, content, player policy, and game-time inputs
 - **THEN** they produce the same ordered pacing transitions and reported outcomes
 
-### Requirement: Pacing guardrails bound pressure without guaranteeing success
-The pacing configuration SHALL bound event floods, excessive periods without a meaningful player action, and balance states in which resource collapse is unavoidable, while retaining the possibility of poor outcomes from player decisions.
+### Requirement: Pacing compounds rather than suppresses pressure
+The pacing configuration SHALL continue scheduling events into an aging backlog, SHALL never defer a spawn because the old flood threshold was reached, and SHALL multiply later-day spawn and escalation intervals by the configured compounding factors.
 
-#### Scenario: Event pressure reaches its configured ceiling
-- **WHEN** active and pending interruption pressure reaches the guardrail threshold
-- **THEN** the game applies the configured deterministic relief behavior without displacing an active event or losing an already scheduled event
+#### Scenario: Event pressure exceeds the former ceiling
+- **WHEN** active and pending interruption pressure exceeds six
+- **THEN** due events remain scheduled, active alerts keep escalating, and no flood relief removes or postpones them
 
 #### Scenario: The run has an excessive quiet period
 - **WHEN** no interruption, task decision, need warning, recovery action, or coding objective has become newly meaningful for the configured maximum quiet duration
 - **THEN** the next eligible pacing opportunity is advanced according to configured deterministic rules
 
 #### Scenario: One resource becomes critical in normal mode
-- **WHEN** a representative run reaches one critical recoverable resource state
-- **THEN** at least one meaningful recovery action remains available before collapse unless the player's prior choices explicitly removed that opportunity
+- **WHEN** a representative run approaches a critical resource state
+- **THEN** available actions expose meaningful but insufficiently safe trade-offs rather than guaranteeing recovery
 
 #### Scenario: The player repeatedly chooses harmful trade-offs
 - **WHEN** player decisions continue to spend resources or defer urgent problems despite available alternatives
 - **THEN** pacing guardrails do not prevent resource collapse or erase the consequences of those decisions
 
-### Requirement: Seeded simulations report complete workday statistics
-The game SHALL support presentation-independent seeded simulations that reach exactly 17:00 and report sufficient statistics to compare pacing bands, event pressure, resources, needs, tasks, recovery opportunities, and deterministic replay.
+### Requirement: Seeded simulations report complete collapse statistics
+The game SHALL support presentation-independent seeded simulations that run until collapse and report sufficient statistics to compare pacing bands, event pressure, resources, needs, tasks, recovery opportunities, days survived, cause, ending, and deterministic replay.
 
 #### Scenario: A seeded simulation completes
 - **WHEN** a valid profile, seed, and deterministic player policy are simulated
-- **THEN** the simulation reaches 17:00 and reports per-band spawn and resolution counts, quiet and peak-pressure periods, resource and need extrema, critical/recovery states, task progress or completions, and final run state
+- **THEN** the simulation reaches a terminal collapse and reports per-band spawn and resolution counts, quiet and peak-pressure periods, resource and need extrema, critical/recovery states, task progress or completions, and final run state
 
 #### Scenario: Morning and main chaos are compared
 - **WHEN** default-profile statistics are aggregated across the documented fixed seed set

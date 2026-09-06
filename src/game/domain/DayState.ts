@@ -15,10 +15,16 @@ export interface DayStateConfig {
     readonly initialResources: ResourceValues;
     /** Pause owners restored on reset. Empty by default, so a new run is running. */
     readonly initialPauseReasons: readonly PauseReason[];
+    /** Allow authoritative time to continue across consecutive workdays. */
+    readonly continuous: boolean;
 }
 
 export interface DayStateSnapshot {
+    /** Total authoritative time across the complete run. */
     readonly elapsedGameMs: number;
+    readonly totalElapsedGameMs: number;
+    readonly dayElapsedGameMs: number;
+    readonly dayIndex: number;
     readonly clockHour: number;
     readonly clockMinute: number;
     readonly dayProgress: number;
@@ -38,7 +44,8 @@ export const DEFAULT_DAY_STATE_CONFIG: DayStateConfig = Object.freeze({
         systemStability: 75,
         technicalDebt: 0
     }),
-    initialPauseReasons: Object.freeze([])
+    initialPauseReasons: Object.freeze([]),
+    continuous: false
 });
 
 type DayStateConfigOverrides = Partial<Omit<DayStateConfig, 'initialResources'>> & {
@@ -70,14 +77,20 @@ export class DayState {
 
     get snapshot (): DayStateSnapshot {
         const totalDurationMs = (this.config.endMinute - this.config.startMinute) * 60_000;
-        const currentMinute = this.config.startMinute + Math.floor(this.elapsedGameMs / 60_000);
+        const dayIndex = Math.floor(this.elapsedGameMs / totalDurationMs) + 1;
+        const dayElapsedGameMs = this.elapsedGameMs % totalDurationMs;
+        const displayElapsedGameMs = !this.config.continuous && this.elapsedGameMs === totalDurationMs ? totalDurationMs : dayElapsedGameMs;
+        const currentMinute = this.config.startMinute + Math.floor(displayElapsedGameMs / 60_000);
         return Object.freeze({
             elapsedGameMs: this.elapsedGameMs,
+            totalElapsedGameMs: this.elapsedGameMs,
+            dayElapsedGameMs: displayElapsedGameMs,
+            dayIndex: !this.config.continuous && this.elapsedGameMs === totalDurationMs ? 1 : dayIndex,
             clockHour: Math.floor(currentMinute / 60),
             clockMinute: currentMinute % 60,
-            dayProgress: this.elapsedGameMs / totalDurationMs,
+            dayProgress: displayElapsedGameMs / totalDurationMs,
             isPaused: this.pauseReasons.size > 0,
-            isDayComplete: this.elapsedGameMs === totalDurationMs,
+            isDayComplete: !this.config.continuous && this.elapsedGameMs === totalDurationMs,
             pauseReasons: Object.freeze([...this.pauseReasons]),
             resources: Object.freeze({ ...this.resources })
         });
@@ -86,7 +99,8 @@ export class DayState {
     advance (elapsedRealMs: number): void {
         if (!Number.isFinite(elapsedRealMs) || elapsedRealMs <= 0 || this.pauseReasons.size > 0) return;
         const durationMs = (this.config.endMinute - this.config.startMinute) * 60_000;
-        const next = Math.min(durationMs, this.elapsedGameMs + elapsedRealMs * this.config.gameMinutesPerRealSecond * 60);
+        const candidate = this.elapsedGameMs + elapsedRealMs * this.config.gameMinutesPerRealSecond * 60;
+        const next = this.config.continuous ? candidate : Math.min(durationMs, candidate);
         if (next === this.elapsedGameMs) return;
         this.elapsedGameMs = next;
         this.notify();
@@ -98,7 +112,8 @@ export class DayState {
         }
         if (gameMinutes === 0) return;
         const durationMs = (this.config.endMinute - this.config.startMinute) * 60_000;
-        const next = Math.min(durationMs, this.elapsedGameMs + gameMinutes * 60_000);
+        const candidate = this.elapsedGameMs + gameMinutes * 60_000;
+        const next = this.config.continuous ? candidate : Math.min(durationMs, candidate);
         if (next === this.elapsedGameMs) return;
         this.elapsedGameMs = next;
         this.notify();
