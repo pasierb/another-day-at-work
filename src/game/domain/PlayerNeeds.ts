@@ -1,4 +1,5 @@
 export type NeedId = 'sleepiness' | 'toilet';
+import { splitPacingInterval,type PacingProfile } from './WorkdayPacing';
 
 export interface NeedPenalty {
     readonly codingSpeed: number;
@@ -130,8 +131,9 @@ export class PlayerNeeds {
     private values: Record<NeedId, number>;
     private criticalEpisodes = new Set<NeedId>();
     private readonly observers = new Set<Observer>();
+    private readonly pacingProfile?:PacingProfile;
 
-    constructor (overrides: PlayerNeedsConfigOverrides = {}, initialElapsedGameMs = 0) {
+    constructor (overrides: PlayerNeedsConfigOverrides = {}, initialElapsedGameMs = 0,pacingProfile?:PacingProfile) {
         const needs = Object.fromEntries(NEED_ORDER.map(id => [id, Object.freeze({
             ...DEFAULT_PLAYER_NEEDS_CONFIG.needs[id], ...overrides.needs?.[id], id,
             stages: Object.freeze([...(overrides.needs?.[id]?.stages ?? DEFAULT_PLAYER_NEEDS_CONFIG.needs[id].stages)])
@@ -140,6 +142,7 @@ export class PlayerNeeds {
         this.validateConfig(initialElapsedGameMs);
         this.elapsedGameMs = initialElapsedGameMs;
         this.values = { sleepiness: needs.sleepiness.initialValue, toilet: needs.toilet.initialValue };
+        this.pacingProfile=pacingProfile;
     }
 
     get snapshot (): PlayerNeedsSnapshot {
@@ -160,23 +163,24 @@ export class PlayerNeeds {
         const endMs = authoritativeElapsedGameMs;
         const transitions: NeedTransition[] = [];
         let additionalStaminaCost = 0;
+        const intervals=this.pacingProfile?splitPacingInterval(this.pacingProfile,startMs,endMs):[{band:undefined,startGameMs:startMs,endGameMs:endMs,durationGameMs:endMs-startMs}] as const;
         for (const id of NEED_ORDER) {
             const config = this.config.needs[id];
-            const startValue = this.values[id];
-            const gained = (endMs - startMs) / 60_000 * config.gainPerGameMinute;
-            const endValue = clamp(startValue + gained, config.minimum, config.maximum);
-            if (id === 'toilet') additionalStaminaCost += this.integrateAdditionalStamina(config, startValue, endValue);
-            const startStageIndex = this.stageIndex(config, startValue);
-            const endStageIndex = this.stageIndex(config, endValue);
-            for (let index = startStageIndex + 1; index <= endStageIndex; index += 1) {
-                const nextStage = config.stages[index];
-                const crossingMinutes = config.gainPerGameMinute === 0 ? 0 : (nextStage.threshold - startValue) / config.gainPerGameMinute;
-                const criticalEffect = nextStage.criticalEffect && !this.criticalEpisodes.has(id) ? nextStage.criticalEffect : undefined;
-                if (criticalEffect) this.criticalEpisodes.add(id);
-                transitions.push(Object.freeze({ need: id, previousStage: config.stages[index - 1], nextStage,
-                    atGameMs: startMs + crossingMinutes * 60_000, warning: nextStage.warning, criticalEffect }));
+            let value=this.values[id];
+            for(const interval of intervals){
+                const rate=config.gainPerGameMinute*(interval.band?.needRateModifiers[id]??1),segmentStart=value;
+                const endValue=clamp(segmentStart+interval.durationGameMs/60_000*rate,config.minimum,config.maximum);
+                if(id==='toilet')additionalStaminaCost+=this.integrateAdditionalStamina(config,segmentStart,endValue,rate);
+                const startStageIndex=this.stageIndex(config,segmentStart),endStageIndex=this.stageIndex(config,endValue);
+                for(let index=startStageIndex+1;index<=endStageIndex;index+=1){
+                    const nextStage=config.stages[index],crossingMinutes=rate===0?0:(nextStage.threshold-segmentStart)/rate;
+                    const criticalEffect=nextStage.criticalEffect&&!this.criticalEpisodes.has(id)?nextStage.criticalEffect:undefined;
+                    if(criticalEffect)this.criticalEpisodes.add(id);
+                    transitions.push(Object.freeze({need:id,previousStage:config.stages[index-1],nextStage,atGameMs:interval.startGameMs+crossingMinutes*60_000,warning:nextStage.warning,criticalEffect}));
+                }
+                value=endValue;
             }
-            this.values[id] = endValue;
+            this.values[id] = value;
         }
         transitions.sort((a, b) => a.atGameMs - b.atGameMs || NEED_ORDER.indexOf(a.need) - NEED_ORDER.indexOf(b.need));
         this.elapsedGameMs = endMs;
@@ -246,15 +250,15 @@ export class PlayerNeeds {
         return clamp(product, this.config.minimumCombinedModifier, 1);
     }
 
-    private integrateAdditionalStamina (config: NeedConfig, startValue: number, endValue: number): number {
-        if (config.gainPerGameMinute === 0 || endValue <= startValue) return 0;
+    private integrateAdditionalStamina (config: NeedConfig, startValue: number, endValue: number,rate=config.gainPerGameMinute): number {
+        if (rate === 0 || endValue <= startValue) return 0;
         let cost = 0;
         let cursor = startValue;
         while (cursor < endValue) {
             const index = this.stageIndex(config, cursor);
             const nextThreshold = config.stages[index + 1]?.threshold ?? endValue;
             const segmentEnd = Math.min(endValue, nextThreshold);
-            cost += (segmentEnd - cursor) / config.gainPerGameMinute * config.stages[index].penalty.additionalStaminaPerGameMinute;
+            cost += (segmentEnd - cursor) / rate * config.stages[index].penalty.additionalStaminaPerGameMinute;
             cursor = segmentEnd;
         }
         return cost;

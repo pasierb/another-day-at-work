@@ -1,11 +1,9 @@
 import { Core, GameObjects, Input, Scene, Scenes } from 'phaser';
 import { CodingSession, type CodingSessionSnapshot } from '../domain/CodingSession';
 import { EngineeringTaskQueue, type EngineeringTaskQueueSnapshot, type TaskDecisionChoiceDefinition } from '../domain/EngineeringTaskQueue';
-import { ENGINEERING_TASKS } from '../content/engineeringTasks';
 import { DayState, type DayStateSnapshot, type ResourceKey } from '../domain/DayState';
 import { PlayerNeeds, type NeedId, type NeedTransition, type PlayerNeedsSnapshot } from '../domain/PlayerNeeds';
 import { BoosterSession, type BoosterId, type BoosterSnapshot } from '../domain/BoosterSession';
-import { INTERRUPTION_CATALOG } from '../content/poTeamInterruptions';
 import { EventScheduler, type ScheduledCandidate } from '../domain/EventScheduler';
 import { ConsequenceQueue } from '../domain/ConsequenceQueue';
 import { EffectEngine } from '../domain/EffectEngine';
@@ -16,6 +14,8 @@ import { createRunContext, InterruptionSession, type ActiveInterruptionSnapshot,
 import { REGIONS } from '../ui/layout';
 import { actionButton, disabledAction, heading, meter, panel, type ActionView, type MeterView } from '../ui/primitives';
 import { COLORS, DEPTH, TYPE } from '../ui/theme';
+import { WorkdaySession } from '../domain/WorkdaySession';
+import { DEVELOPER_PACING_PROFILE,NORMAL_PACING_PROFILE } from '../domain/WorkdayPacing';
 
 const textStyle = { fontFamily: TYPE.family, fontSize: TYPE.body, color: COLORS.text } as const;
 const mutedStyle = { fontFamily: TYPE.family, fontSize: TYPE.small, color: COLORS.textMuted } as const;
@@ -24,7 +24,6 @@ const TASK_DECISION_PAUSE_REASON = 'task-decision';
 const TASK_SWITCH_FOCUS_COST = 0.2;
 const severityColors = { low: COLORS.mint, medium: COLORS.amber, high: COLORS.danger, critical: COLORS.danger } as const;
 const severityRanks = { low: 0, medium: 1, high: 2, critical: 3 } as const;
-const WORKDAY_DURATION_MS = 8 * 60 * 60_000;
 
 export class Workstation extends Scene {
     workday!: DayState;
@@ -37,6 +36,9 @@ export class Workstation extends Scene {
     disruptions!: CodingDisruptionLedger;
     playerNeeds!: PlayerNeeds;
     boosters!: BoosterSession;
+    session!:WorkdaySession;
+    private pacingOverlay?:GameObjects.Container;
+    private pacingOverlayText?:GameObjects.Text;
     private resourceViews!: Record<ResourceKey, { value: GameObjects.Text; meter: MeterView }>;
     private clockText!: GameObjects.Text;
     private dayProgressMeter!: MeterView;
@@ -74,19 +76,9 @@ export class Workstation extends Scene {
     create () {
         this.cleanupWorkday();
         this.consequenceFeedback.length=0;
-        this.workday = new DayState();
-        this.coding = new CodingSession();
-        this.taskQueue = new EngineeringTaskQueue(ENGINEERING_TASKS);
-        this.playerNeeds = new PlayerNeeds({}, this.workday.snapshot.elapsedGameMs);
-        this.boosters = new BoosterSession({}, 20260908);
-        this.interruptions = new InterruptionSession(INTERRUPTION_CATALOG, this.workday.snapshot.elapsedGameMs, false, () => this.workday.snapshot.resources.technicalDebt);
-        this.scheduler = new EventScheduler(INTERRUPTION_CATALOG, {
-            minimumSpawnIntervalMs: 20 * 60_000, maximumSpawnIntervalMs: 35 * 60_000,
-            activeLimit: 3, endGameMs: WORKDAY_DURATION_MS
-        }, 20260906);
-        this.consequenceQueue=new ConsequenceQueue();
-        this.disruptions=new CodingDisruptionLedger();
-        this.effectEngine=new EffectEngine({mutateResource:(resource,amount)=>this.workday.mutateResource(resource,amount),reduceFocus:amount=>this.coding.reduceFocus(amount),reduceTaskProgress:amount=>this.taskQueue.reduceSelectedProgress(amount),disruptions:this.disruptions,queue:this.consequenceQueue,gameTime:()=>this.workday.snapshot.elapsedGameMs,technicalDebt:()=>this.workday.snapshot.resources.technicalDebt,feedback:record=>this.showConsequenceFeedback(record),consequenceConcluded:id=>this.interruptions.recordConcludedConsequence(id)},20260907);
+        const profile=import.meta.env.VITE_PACING_PROFILE==='developer'?DEVELOPER_PACING_PROFILE:NORMAL_PACING_PROFILE;
+        this.session=new WorkdaySession(profile,20260906,record=>this.showConsequenceFeedback(record));
+        this.workday=this.session.workday;this.coding=this.session.coding;this.taskQueue=this.session.taskQueue;this.playerNeeds=this.session.playerNeeds;this.boosters=this.session.boosters;this.interruptions=this.session.interruptions;this.scheduler=this.session.scheduler;this.consequenceQueue=this.session.consequenceQueue;this.disruptions=this.session.disruptions;this.effectEngine=this.session.effectEngine;
         this.cameras.main.setBackgroundColor(COLORS.backdrop);
         this.buildBackdrop();
         this.buildResourceHud();
@@ -95,6 +87,7 @@ export class Workstation extends Scene {
         this.buildLaptop();
         this.buildAlerts();
         this.buildQuickActions();
+        this.buildPacingOverlay();
         this.renderWorkday(this.workday.snapshot);
         this.synchronizeCodingAvailability();
         this.renderCoding(this.coding.snapshot);
@@ -283,7 +276,7 @@ export class Workstation extends Scene {
 
     private addTaskDecisionChoice(overlay:GameObjects.Container,choice:TaskDecisionChoiceDefinition,x:number,y:number):void{const background=this.add.rectangle(x,y,640,126,COLORS.surface,1).setOrigin(0).setStrokeStyle(1,COLORS.blue).setInteractive({useHandCursor:true});background.once(Input.Events.GAMEOBJECT_POINTER_DOWN,()=>this.resolveTaskChoice(choice.id));overlay.add([background,this.add.text(x+18,y+15,choice.label,{...textStyle,fontSize:15,fontStyle:'bold'}),this.add.text(x+622,y+16,`${choice.gameMinutes} MIN`,{...mutedStyle,color:'#8ac5ff',fontStyle:'bold'}).setOrigin(1,0),this.add.text(x+18,y+45,choice.description,{...mutedStyle,wordWrap:{width:590}}),this.add.text(x+18,y+88,[`Clock +${choice.gameMinutes}m`,...choice.effects.map(effect=>this.describeEffect(effect))].join('  ·  '),{...mutedStyle,color:'#cbd5e1',wordWrap:{width:600}})]);}
 
-    private resolveTaskChoice(choiceId:string):void{const choice=this.taskQueue.resolvePendingDecision(choiceId);if(!choice)return;this.workday.spendGameMinutes(choice.gameMinutes);this.effectEngine.execute(choice.effects,`task-decision:${choiceId}`);this.workday.resume(TASK_DECISION_PAUSE_REASON);this.decisionOverlay?.destroy(true);this.decisionOverlay=undefined;this.cancelHeldCodingForDecision();this.synchronizeWorld();this.renderTaskQueue(this.taskQueue.snapshot);}
+    private resolveTaskChoice(choiceId:string):void{const choice=this.taskQueue.resolvePendingDecision(choiceId);if(!choice)return;this.workday.spendGameMinutes(choice.gameMinutes);this.effectEngine.execute(choice.effects,`task-decision:${choiceId}`);this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);this.workday.resume(TASK_DECISION_PAUSE_REASON);this.decisionOverlay?.destroy(true);this.decisionOverlay=undefined;this.cancelHeldCodingForDecision();this.synchronizeWorld();this.renderTaskQueue(this.taskQueue.snapshot);}
 
     private addDecisionChoice (overlay: GameObjects.Container, choice: InterruptionChoiceDefinition, x: number, y: number, disabled: boolean,height=126): void {
         const compact=height<100;const background = this.add.rectangle(x, y, 640, height, disabled ? COLORS.surfaceMuted : COLORS.surface, 1).setOrigin(0).setStrokeStyle(1, disabled ? COLORS.disabled : COLORS.blue);
@@ -313,6 +306,7 @@ export class Workstation extends Scene {
         this.workday.spendGameMinutes(pending.choice.gameMinutes);
         this.effectEngine.execute(pending.choice.effects,pending.interruptionId);
         this.interruptions.finalizeResolution(pending.interruptionId);
+        this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);
         this.reconcileStaleWarnings();
         this.scheduler.resolved(pending.interruptionId, candidate => this.activateCandidate(candidate));
         this.workday.resume(DECISION_PAUSE_REASON);
@@ -322,12 +316,12 @@ export class Workstation extends Scene {
 
     private postponeInterruption (id: string): void {
         if (this.decisionOverlay || this.workday.snapshot.isPaused) return;
-        this.interruptions.postpone(id);
+        if(this.interruptions.postpone(id))this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);
     }
 
     private ignoreInterruption (id: string): void {
         if (this.decisionOverlay || this.workday.snapshot.isPaused) return;
-        this.applyTransitionBatch(this.interruptions.ignore(id));
+        this.applyTransitionBatch(this.interruptions.ignore(id));this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);
     }
 
     private synchronizeInterruptions (): void {
@@ -437,6 +431,7 @@ export class Workstation extends Scene {
             this.applyNeedCodingModifiers();
         }
         this.boosterFeedbackText?.setText(`${result.feedback} ${this.boosters.config.boosters[id].label} #${result.consumptionCount} consumed.`);
+        this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);
         this.reconcileStaleWarnings();
         this.synchronizeInterruptions();
         this.synchronizeCodingAvailability();
@@ -477,6 +472,7 @@ export class Workstation extends Scene {
             this.workday.spendGameMinutes(this.playerNeeds.config.bathroomGameMinutes);
             this.synchronizeWorld();
             this.playerNeeds.relieve('toilet');
+            this.scheduler.markMeaningfulAction(this.workday.snapshot.elapsedGameMs);
             this.reconcileStaleWarnings();
             this.applyNeedCodingModifiers();
             this.showNeedFeedback('Bathroom break complete. Biological incident downgraded.');
@@ -513,9 +509,19 @@ export class Workstation extends Scene {
         this.resourceViews.technicalDebt.meter.setValue(debt / 100);
         this.clockText.setText(`${String(snapshot.clockHour).padStart(2, '0')}:${String(snapshot.clockMinute).padStart(2, '0')}`);
         this.dayProgressMeter.setValue(snapshot.dayProgress);
+        this.renderPacingOverlay();
         this.updateToiletAvailability();
         this.updateBoosterAvailability();
     }
+
+    private buildPacingOverlay():void{
+        if(import.meta.env.VITE_PACING_DEBUG!=='true')return;
+        const root=this.add.container(24,644).setDepth(DEPTH.content+20).setScrollFactor(0);
+        const bg=this.add.rectangle(0,0,258,64,0x080d14,.94).setOrigin(0).setStrokeStyle(1,COLORS.blue);
+        this.pacingOverlayText=this.add.text(9,7,'',{...mutedStyle,fontSize:9,color:'#8ac5ff',lineSpacing:2});
+        root.add([bg,this.pacingOverlayText]);this.pacingOverlay=root;this.renderPacingOverlay();
+    }
+    private renderPacingOverlay():void{if(!this.pacingOverlayText||!this.session)return;const s=this.session.debugSnapshot;this.pacingOverlayText.setText(`PACING · ${s.profile.toUpperCase()} · ${s.activeBand.toUpperCase()}\nSEED ${s.seed} · PRESSURE ${s.eventPressure} · QUIET ${Math.floor(s.quietDurationGameMs/60000)}m\nS ${Math.round(s.resources.stamina)} · PO ${Math.round(s.resources.poHappiness)} · STAB ${Math.round(s.resources.systemStability)} · N ${Math.round(s.needs.sleepiness)}/${Math.round(s.needs.toilet)}`);}
 
     private bindCodingInput (): void {
         this.codingActionBackground.on(Input.Events.GAMEOBJECT_POINTER_DOWN, (pointer: Input.Pointer) => {
@@ -637,6 +643,7 @@ export class Workstation extends Scene {
         this.boosterActions = undefined;
         this.boosters?.reset();
         this.boosterFeedbackText = undefined;
+        this.pacingOverlay?.destroy(true);this.pacingOverlay=undefined;this.pacingOverlayText=undefined;
         this.bathroomInProgress = false;
         this.clearHeldCodingSources();
         this.blockedCodingSources.clear();

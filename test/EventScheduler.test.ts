@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { EventScheduler, SeededRandom, type RandomSource } from '../src/game/domain/EventScheduler.ts';
+import {createPacingProfile,NORMAL_PACING_PROFILE} from '../src/game/domain/WorkdayPacing.ts';
 const config = { minimumSpawnIntervalMs: 10, maximumSpawnIntervalMs: 10, activeLimit: 2, endGameMs: 100 } as const;
 
 describe('SeededRandom', () => {
     it('repeats after reset and separates seeds', () => { const a=new SeededRandom(7);const first=[a.next(),a.next(),a.next()];a.reset();assert.deepEqual([a.next(),a.next(),a.next()],first);const b=new SeededRandom(8);assert.notDeepEqual([b.next(),b.next(),b.next()],first); });
+});
+describe('band-aware scheduler guardrails',()=>{
+    const profile=createPacingProfile({...NORMAL_PACING_PROFILE,guardrails:{...NORMAL_PACING_PROFILE.guardrails,floodPressure:1,floodDeferralGameMs:60_000,maximumQuietGameMs:2*60_000},bands:NORMAL_PACING_PROFILE.bands.map(b=>({...b,minimumSpawnIntervalMs:5*60_000,maximumSpawnIntervalMs:5*60_000}))});
+    it('defers floods without consuming draws or changing pending identity',()=>{let draws=0;const random:RandomSource={next:()=>{draws++;return 0},reset:()=>{draws=0}};const scheduler=new EventScheduler([{id:'a',category:'production'},{id:'b',category:'production'}],{...config,endGameMs:8*60*60_000,pacingProfile:profile,activeLimit:1},1,random);scheduler.synchronize(5*60_000,()=>true);const before=draws;scheduler.synchronize(6*60_000,()=>true);assert.equal(draws,before);assert.equal(scheduler.snapshot.floodDeferrals,1);assert.deepEqual(scheduler.snapshot.activeIds,['a']);});
+    it('advances an eligible quiet opportunity and never forces a zero-weight candidate',()=>{const eligible=new EventScheduler([{id:'a',category:'production'}],{...config,endGameMs:8*60*60_000,pacingProfile:profile},1);assert.equal(eligible.synchronize(2*60_000,()=>true).length,1);const empty=new EventScheduler([{id:'a',category:'production',baseWeight:0}],{...config,endGameMs:8*60*60_000,pacingProfile:profile},1);assert.deepEqual(empty.synchronize(2*60_000,()=>true),[]);assert.equal(empty.snapshot.emptyQuietEvaluations,1);});
+    it('does not advance quiet duration when authoritative time is unchanged',()=>{const scheduler=new EventScheduler(['a'],{...config,endGameMs:8*60*60_000,pacingProfile:profile},1);scheduler.synchronize(60_000,()=>true);const before=scheduler.snapshot.quietDurationGameMs;scheduler.synchronize(60_000,()=>true);assert.equal(scheduler.snapshot.quietDurationGameMs,before);});
 });
 describe('EventScheduler', () => {
     const run=(updates:number[])=>{const scheduler=new EventScheduler(['a','b','c'],config,42);const output:string[]=[];for(const time of updates)scheduler.synchronize(time,c=>{output.push(`${c.definitionId}@${c.dueGameMs}`);return true;});return output;};
