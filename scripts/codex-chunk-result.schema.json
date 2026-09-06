@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["outcome", "change", "summary"],
+  "properties": {
+    "outcome": {
+      "type": "string",
+      "enum": ["created", "complete", "applied", "finalized", "blocked"]
+    },
+    "change": {
+      "type": "string"
+    },
+    "summary": {
+      "type": "string"
+    }
+  }
+}
