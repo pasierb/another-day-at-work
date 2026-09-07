@@ -1,75 +1,21 @@
-# Workstation Shell Specification
+# Workstation Shell
 
 ## Purpose
-
-Provide a recognizable, responsive workstation screen whose stable visual regions can host the game's later tasks, resources, interruptions, and actions.
+Provide the responsive frame for the illustrated sticky-only workday.
 
 ## Requirements
 
-### Requirement: Game opens into the workstation experience
-The game SHALL finish its loading flow by presenting the Another Day at Work workstation rather than Phaser template branding, sample copy, or a placeholder click-through screen.
+### Requirement: Stable visual regions remain readable
+The workstation SHALL reserve regions for the passive laptop, distributed stickies, clock, needs/resources status rail, and meta controls.
 
-#### Scenario: Initial game load completes
-- **WHEN** the required startup assets finish loading
-- **THEN** the workstation screen is presented without requiring an extra pointer action
+#### Scenario: Desktop layout renders
+- **WHEN** the workstation starts
+- **THEN** the laptop is unobstructed and the status rail does not overlap stickies
 
-#### Scenario: Browser page identifies the game
-- **WHEN** the game page is opened
-- **THEN** the browser metadata identifies it as Another Day at Work while the workstation canvas remains focused on live play information
+### Requirement: The shell supports touch sizing
+The scene SHALL preserve readable, operable controls at the documented minimum touch viewport.
 
-### Requirement: Workstation exposes the primary interface regions
-The workstation SHALL present distinct regions for the right-side status rail, task queue, laptop workspace, floating messages and alerts, day clock and progress, and quick actions.
+#### Scenario: The viewport reaches minimum size
+- **WHEN** layout scaling is applied
+- **THEN** inline sticky and meta controls remain inside the usable canvas
 
-#### Scenario: Workstation shell is displayed
-- **WHEN** the workstation screen is ready
-- **THEN** all six primary regions are simultaneously visible or unambiguously identifiable, status meters do not overlap other controls, and every visible alert remains actionable around the laptop
-
-#### Scenario: Alert presentation avoids duplicate cards
-- **WHEN** an interruption is active
-- **THEN** it appears once as an actionable floating notification and is not repeated in the status rail
-
-#### Scenario: Active alerts exceed the visible limit
-- **WHEN** more interruptions are active than fit on one notification page
-- **THEN** a compact pager exposes active and backlog counts, identifies the current page, and provides bounded previous and next controls
-
-#### Scenario: Empty gameplay regions are shown before mechanics exist
-- **WHEN** a primary region has no implemented gameplay data or interaction
-- **THEN** it displays representative static placeholder content that communicates the region's intended purpose without implying that the mechanic is functional
-
-### Requirement: Layout preserves its composition across viewport changes
-The game SHALL use a fixed logical landscape composition and uniformly fit it within the available browser viewport while preserving its aspect ratio and input alignment.
-
-#### Scenario: Landscape viewport is resized
-- **WHEN** the browser viewport changes size or aspect ratio
-- **THEN** the complete workstation composition remains visible, centered, and free of stretched or overlapping regions
-
-#### Scenario: Viewport is narrower than the logical composition
-- **WHEN** the available viewport is narrower or more portrait-oriented than the logical game aspect ratio
-- **THEN** the whole logical canvas is scaled down and letterboxed as necessary rather than cropped or independently rearranged
-
-#### Scenario: Pointer input follows the rendered canvas
-- **WHEN** the canvas has been scaled and the user points at a visible UI region
-- **THEN** the game resolves the input against the corresponding logical region
-
-### Requirement: Shell presentation communicates hierarchy and state honestly
-The workstation SHALL use a layered illustrated scene to visually prioritize the laptop workspace while keeping the surrounding status, task, interruption, clock, need, Technical Debt, and quick-action information readable, SHALL distinguish enabled controls from disabled or decorative elements, and SHALL retain that hierarchy as visual stress increases.
-
-#### Scenario: Player scans the initial workstation
-- **WHEN** the illustrated workstation is presented at any workday stress stage
-- **THEN** the laptop workspace remains the dominant central element and the right status rail, task queue, floating alerts, clock, Technical Debt, and actions remain legible around it
-
-#### Scenario: Player encounters a future-action placeholder
-- **WHEN** an action or data-driven mechanic has not been implemented
-- **THEN** its representation is visibly non-interactive and does not respond as though an action succeeded
-
-#### Scenario: Player scans action states
-- **WHEN** an enabled, selected, pressed, urgent, or disabled element is visible
-- **THEN** its state is apparent through consistent non-color presentation cues and its interaction behavior matches the displayed state
-
-#### Scenario: Decorative stress details are displayed
-- **WHEN** clutter or environmental emphasis is added as workday pressure rises
-- **THEN** those details remain visually subordinate and cannot intercept input intended for gameplay controls
-
-#### Scenario: Illustrated shell is scaled
-- **WHEN** the fixed logical composition is fitted to a supported viewport
-- **THEN** environment layers, live interface regions, and their interactive bounds remain aligned without stretching or independent reflow

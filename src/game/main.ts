@@ -13,7 +13,7 @@ const config: Phaser.Types.Core.GameConfig = {
 
 const StartGame = (parent: string) => {
     const game = new Game({ ...config, parent });
-    if (import.meta.env.DEV) {
+    if (import.meta.env.DEV || new URLSearchParams(window.location.search).get('playtest') === '1') {
         (window as Window & { __PHASER_GAME__?: Game }).__PHASER_GAME__ = game;
     }
     return game;

@@ -1,16 +1,13 @@
 export type NeedId = 'sleepiness' | 'toilet';
 import { splitPacingInterval,type PacingProfile } from './WorkdayPacing';
 
-export interface NeedPenalty {
-    readonly codingSpeed: number;
-    readonly focusGain: number;
+export interface NeedDrain {
     readonly additionalStaminaPerGameMinute: number;
 }
 
 export interface NeedCriticalEffect {
     readonly id: string;
     readonly feedback: string;
-    readonly focusReduction: number;
     readonly staminaCost: number;
     readonly timeLossGameMinutes: number;
 }
@@ -20,7 +17,7 @@ export interface NeedStageConfig {
     readonly label: string;
     readonly threshold: number;
     readonly warning?: string;
-    readonly penalty: NeedPenalty;
+    readonly drain: NeedDrain;
     readonly criticalEffect?: NeedCriticalEffect;
 }
 
@@ -37,9 +34,6 @@ export interface NeedConfig {
 
 export interface PlayerNeedsConfig {
     readonly needs: Readonly<Record<NeedId, NeedConfig>>;
-    readonly minimumCombinedModifier: number;
-    readonly bathroomGameMinutes: number;
-    readonly bathroomFocusReduction: number;
 }
 
 export interface NeedSnapshot {
@@ -56,8 +50,6 @@ export interface PlayerNeedsSnapshot {
     readonly elapsedGameMs: number;
     readonly sleepiness: NeedSnapshot;
     readonly toilet: NeedSnapshot;
-    readonly codingSpeedModifier: number;
-    readonly focusGainModifier: number;
     readonly additionalStaminaPerGameMinute: number;
 }
 
@@ -85,35 +77,30 @@ export interface NeedMutationResult {
     readonly snapshot: PlayerNeedsSnapshot;
 }
 
-const neutralPenalty = (): NeedPenalty => Object.freeze({ codingSpeed: 1, focusGain: 1, additionalStaminaPerGameMinute: 0 });
-const penalty = (codingSpeed: number, focusGain: number, additionalStaminaPerGameMinute = 0): NeedPenalty =>
-    Object.freeze({ codingSpeed, focusGain, additionalStaminaPerGameMinute });
+const drain = (additionalStaminaPerGameMinute = 0): NeedDrain => Object.freeze({ additionalStaminaPerGameMinute });
 
 export const DEFAULT_PLAYER_NEEDS_CONFIG: PlayerNeedsConfig = Object.freeze({
-    minimumCombinedModifier: 0.1,
-    bathroomGameMinutes: 10,
-    bathroomFocusReduction: 0.2,
     needs: Object.freeze({
         sleepiness: Object.freeze({
             id: 'sleepiness', label: 'Sleepiness', minimum: 0, maximum: 100, initialValue: 0,
             gainPerGameMinute: 100 / 480,
             stages: Object.freeze([
-                Object.freeze({ id: 'slightly-tired', label: 'Slightly tired', threshold: 0, penalty: neutralPenalty() }),
-                Object.freeze({ id: 'getting-sleepy', label: 'Getting sleepy', threshold: 25, warning: 'Sleepiness: getting sleepy. Focus is starting to wander.', penalty: neutralPenalty() }),
-                Object.freeze({ id: 'struggling', label: 'Struggling to focus', threshold: 50, warning: 'Sleepiness: struggling to focus. Coding is slower.', penalty: penalty(0.85, 0.75) }),
-                Object.freeze({ id: 'microsleep', label: 'Microsleep', threshold: 75, warning: 'Sleepiness: microsleeps detected. Productivity is theoretical.', penalty: penalty(0.65, 0.45) }),
-                Object.freeze({ id: 'fell-asleep', label: 'Fell asleep', threshold: 95, warning: 'Sleepiness critical: stand-up became a sit-down nap.', penalty: penalty(0.4, 0.2), criticalEffect: Object.freeze({ id: 'sleepiness-critical', feedback: 'You fell asleep during an implausibly brief stand-up.', focusReduction: 0.65, staminaCost: 0, timeLossGameMinutes: 8 }) })
+                Object.freeze({ id: 'slightly-tired', label: 'Slightly tired', threshold: 0, drain: drain() }),
+                Object.freeze({ id: 'getting-sleepy', label: 'Getting sleepy', threshold: 25, warning: 'Sleepiness: getting sleepy.', drain: drain() }),
+                Object.freeze({ id: 'struggling', label: 'Struggling to stay alert', threshold: 50, warning: 'Sleepiness is becoming a problem.', drain: drain(0.05) }),
+                Object.freeze({ id: 'microsleep', label: 'Microsleep', threshold: 75, warning: 'Sleepiness: microsleeps detected.', drain: drain(0.12) }),
+                Object.freeze({ id: 'fell-asleep', label: 'Fell asleep', threshold: 95, warning: 'Sleepiness critical: stand-up became a sit-down nap.', drain: drain(0.22), criticalEffect: Object.freeze({ id: 'sleepiness-critical', feedback: 'You fell asleep during an implausibly brief stand-up.', staminaCost: 0, timeLossGameMinutes: 8 }) })
             ])
         }),
         toilet: Object.freeze({
             id: 'toilet', label: 'Toilet Need', minimum: 0, maximum: 100, initialValue: 0,
             gainPerGameMinute: 100 / 360, relievedValue: 8,
             stages: Object.freeze([
-                Object.freeze({ id: 'could-wait', label: 'Could probably wait', threshold: 0, penalty: neutralPenalty() }),
-                Object.freeze({ id: 'noticeable', label: 'Noticeable', threshold: 25, warning: 'Toilet Need: noticeable. There is still time to be sensible.', penalty: neutralPenalty() }),
-                Object.freeze({ id: 'priority', label: 'Becoming a priority', threshold: 50, warning: 'Toilet Need: becoming a priority. Concentration is slipping.', penalty: penalty(0.9, 0.8, 0.05) }),
-                Object.freeze({ id: 'urgent', label: 'Urgent', threshold: 75, warning: 'Toilet Need: urgent. Stamina is draining faster.', penalty: penalty(0.7, 0.55, 0.12) }),
-                Object.freeze({ id: 'sev-1', label: 'Biological SEV-1', threshold: 95, warning: 'BIOLOGICAL SEV-1: immediate human maintenance required.', penalty: penalty(0.45, 0.3, 0.22), criticalEffect: Object.freeze({ id: 'toilet-critical', feedback: 'BIOLOGICAL SEV-1 declared. The incident remains recoverable.', focusReduction: 0.4, staminaCost: 8, timeLossGameMinutes: 0 }) })
+                Object.freeze({ id: 'could-wait', label: 'Could probably wait', threshold: 0, drain: drain() }),
+                Object.freeze({ id: 'noticeable', label: 'Noticeable', threshold: 25, warning: 'Toilet Need: noticeable. There is still time to be sensible.', drain: drain() }),
+                Object.freeze({ id: 'priority', label: 'Becoming a priority', threshold: 50, warning: 'Toilet Need: becoming a priority.', drain: drain(0.05) }),
+                Object.freeze({ id: 'urgent', label: 'Urgent', threshold: 75, warning: 'Toilet Need: urgent. Stamina is draining faster.', drain: drain(0.12) }),
+                Object.freeze({ id: 'sev-1', label: 'Biological SEV-1', threshold: 95, warning: 'BIOLOGICAL SEV-1: immediate human maintenance required.', drain: drain(0.22), criticalEffect: Object.freeze({ id: 'toilet-critical', feedback: 'BIOLOGICAL SEV-1 declared. The incident remains recoverable.', staminaCost: 8, timeLossGameMinutes: 0 }) })
             ])
         })
     })
@@ -150,9 +137,7 @@ export class PlayerNeeds {
         const toilet = this.needSnapshot('toilet');
         return Object.freeze({
             elapsedGameMs: this.elapsedGameMs, sleepiness, toilet,
-            codingSpeedModifier: this.combinedModifier('codingSpeed'),
-            focusGainModifier: this.combinedModifier('focusGain'),
-            additionalStaminaPerGameMinute: sleepiness.stage.penalty.additionalStaminaPerGameMinute + toilet.stage.penalty.additionalStaminaPerGameMinute
+            additionalStaminaPerGameMinute: sleepiness.stage.drain.additionalStaminaPerGameMinute + toilet.stage.drain.additionalStaminaPerGameMinute
         });
     }
 
@@ -170,7 +155,7 @@ export class PlayerNeeds {
             for(const interval of intervals){
                 const rate=config.gainPerGameMinute*(interval.band?.needRateModifiers[id]??1),segmentStart=value;
                 const endValue=clamp(segmentStart+interval.durationGameMs/60_000*rate,config.minimum,config.maximum);
-                if(id==='toilet')additionalStaminaCost+=this.integrateAdditionalStamina(config,segmentStart,endValue,rate);
+                additionalStaminaCost+=this.integrateAdditionalStamina(config,segmentStart,endValue,rate);
                 const startStageIndex=this.stageIndex(config,segmentStart),endStageIndex=this.stageIndex(config,endValue);
                 for(let index=startStageIndex+1;index<=endStageIndex;index+=1){
                     const nextStage=config.stages[index],crossingMinutes=rate===0?0:(nextStage.threshold-segmentStart)/rate;
@@ -254,11 +239,6 @@ export class PlayerNeeds {
             severity: (value - config.minimum) / (config.maximum - config.minimum), stage: this.stage(config, value) });
     }
 
-    private combinedModifier (key: 'codingSpeed' | 'focusGain'): number {
-        const product = NEED_ORDER.reduce((value, id) => value * this.stage(this.config.needs[id], this.values[id]).penalty[key], 1);
-        return clamp(product, this.config.minimumCombinedModifier, 1);
-    }
-
     private integrateAdditionalStamina (config: NeedConfig, startValue: number, endValue: number,rate=config.gainPerGameMinute): number {
         if (rate === 0 || endValue <= startValue) return 0;
         let cost = 0;
@@ -267,7 +247,7 @@ export class PlayerNeeds {
             const index = this.stageIndex(config, cursor);
             const nextThreshold = config.stages[index + 1]?.threshold ?? endValue;
             const segmentEnd = Math.min(endValue, nextThreshold);
-            cost += (segmentEnd - cursor) / rate * config.stages[index].penalty.additionalStaminaPerGameMinute;
+            cost += (segmentEnd - cursor) / rate * config.stages[index].drain.additionalStaminaPerGameMinute;
             cursor = segmentEnd;
         }
         return cost;
@@ -285,16 +265,13 @@ export class PlayerNeeds {
     private notify (): void { const snapshot = this.snapshot; this.observers.forEach(observer => observer(snapshot)); }
     private validateConfig (initialElapsedGameMs: number): void {
         if (!Number.isFinite(initialElapsedGameMs) || initialElapsedGameMs < 0) throw new RangeError('Initial need time must be finite and non-negative.');
-        if (!Number.isFinite(this.config.minimumCombinedModifier) || this.config.minimumCombinedModifier < 0 || this.config.minimumCombinedModifier > 1) throw new RangeError('Minimum combined modifier must be between zero and one.');
-        if (!Number.isFinite(this.config.bathroomGameMinutes) || this.config.bathroomGameMinutes < 0 || !Number.isFinite(this.config.bathroomFocusReduction) || this.config.bathroomFocusReduction < 0) throw new RangeError('Bathroom costs must be finite and non-negative.');
         for (const id of NEED_ORDER) {
             const need = this.config.needs[id];
             if (need.id !== id || !need.label.trim() || !Number.isFinite(need.minimum) || !Number.isFinite(need.maximum) || need.maximum <= need.minimum || !Number.isFinite(need.initialValue) || need.initialValue < need.minimum || need.initialValue > need.maximum || !Number.isFinite(need.gainPerGameMinute) || need.gainPerGameMinute < 0 || need.stages.length === 0) throw new TypeError(`Invalid ${id} need configuration.`);
             need.stages.forEach((stage, index) => {
-                const p = stage.penalty;
-                if (!stage.id.trim() || !stage.label.trim() || !Number.isFinite(stage.threshold) || stage.threshold < need.minimum || stage.threshold > need.maximum || (index === 0 && stage.threshold !== need.minimum) || (index > 0 && stage.threshold <= need.stages[index - 1].threshold) || ![p.codingSpeed, p.focusGain, p.additionalStaminaPerGameMinute].every(value => Number.isFinite(value) && value >= 0) || p.codingSpeed > 1 || p.focusGain > 1) throw new TypeError(`Invalid stage configuration for ${id}.`);
+                if (!stage.id.trim() || !stage.label.trim() || !Number.isFinite(stage.threshold) || stage.threshold < need.minimum || stage.threshold > need.maximum || (index === 0 && stage.threshold !== need.minimum) || (index > 0 && stage.threshold <= need.stages[index - 1].threshold) || !Number.isFinite(stage.drain.additionalStaminaPerGameMinute) || stage.drain.additionalStaminaPerGameMinute < 0) throw new TypeError(`Invalid stage configuration for ${id}.`);
                 const effect = stage.criticalEffect;
-                if (effect && (!effect.id.trim() || !effect.feedback.trim() || ![effect.focusReduction, effect.staminaCost, effect.timeLossGameMinutes].every(value => Number.isFinite(value) && value >= 0))) throw new TypeError(`Invalid critical effect for ${id}.`);
+                if (effect && (!effect.id.trim() || !effect.feedback.trim() || ![effect.staminaCost, effect.timeLossGameMinutes].every(value => Number.isFinite(value) && value >= 0))) throw new TypeError(`Invalid critical effect for ${id}.`);
             });
         }
     }

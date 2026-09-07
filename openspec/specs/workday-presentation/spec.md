@@ -1,113 +1,28 @@
-# Workday Presentation Specification
+# Workday Presentation
 
 ## Purpose
-
-Provide a coherent, readable audiovisual presentation that makes workstation state, interactability, and escalating workday pressure immediately understandable without changing game mechanics.
+Present a readable illustrated sticky workspace across desktop and touch layouts.
 
 ## Requirements
 
-### Requirement: Presentation uses a consistent and accessible visual language
-The game SHALL use a consistent authored palette, typography hierarchy, cards, meters, badges, portraits, icons, and interaction states across the workstation, decisions, and results, and SHALL communicate source, severity, and interactability with shape, text, iconography, border, or restrained motion cues in addition to color.
+### Requirement: Laptop artwork is passive
+The illustrated laptop SHALL remain visible as a scene prop without application, task, AI-review, or gameplay controls.
 
-#### Scenario: Player distinguishes alert severity
-- **WHEN** alerts of different severity are visible
-- **THEN** the player can distinguish their urgency without relying only on hue
+#### Scenario: The workstation opens
+- **WHEN** the scene is rendered
+- **THEN** stickies occupy the freed workspace without covering the status rail
 
-#### Scenario: Player recognizes an alert source
-- **WHEN** an interruption card is visible
-- **THEN** its portrait or icon, source label, and card treatment identify its person or system independently of the full copy
+### Requirement: Sticky choices remain inline and readable
+Active stickies SHALL show concise copy, age/escalation state, and directly actionable choices with paging for overflow.
 
-#### Scenario: Player scans interactive states
-- **WHEN** enabled, hovered or pressed, selected, and disabled controls are shown
-- **THEN** each state is visually distinct and disabled controls do not imply successful interaction
+#### Scenario: The minimum touch viewport is used
+- **WHEN** multiple stickies are active
+- **THEN** their text and choice controls remain legible and operable
 
-#### Scenario: Results are presented after collapse
-- **WHEN** the results view opens
-- **THEN** its authored loss ending, evidence-based autopsy, survival time, and restart action use the same presentation language as the workstation without a score
+### Requirement: Meta controls remain conventional
+Pause, mute, guidance dismissal, and restart SHALL remain ordinary controls outside the gameplay action model.
 
-### Requirement: Workstation environment reflects escalating pressure
-The workstation SHALL derive a deterministic visual-stress stage from game time, active-alert pressure, and Technical Debt, and SHALL use that stage to select authored environment, character, lighting, and clutter variants without changing domain state.
+#### Scenario: Pause is toggled
+- **WHEN** the pause control is activated
+- **THEN** authoritative play stops and resumes without changing sticky choices
 
-#### Scenario: Calm run begins
-- **WHEN** a run is early, has few active alerts, and has low Technical Debt
-- **THEN** the illustrated desk appears comparatively clean and calm and the developer appears composed
-
-#### Scenario: Pressure increases
-- **WHEN** time, active-alert pressure, or Technical Debt crosses a documented presentation threshold
-- **THEN** the corresponding stress stage adds or emphasizes authored clutter, environmental details, and character strain without hiding controls, labels, meters, decisions, or alerts
-
-#### Scenario: Equivalent state is rendered again
-- **WHEN** the same presentation inputs are supplied after a redraw or seeded replay
-- **THEN** the same stress stage and environmental composition are produced without random gameplay effects
-
-#### Scenario: Stress stage changes during play
-- **WHEN** presentation inputs move the workstation to a different stress stage
-- **THEN** the new visual state appears without resetting gameplay, moving interactive regions, or producing a disruptive full-scene flash
-
-### Requirement: Core actions provide restrained audio feedback
-The game SHALL provide distinct, restrained sound cues for coding, messages, incidents, resolved choices, booster use, and critical needs, and SHALL bound concurrent playback and output level so increasing activity remains intelligible and comfortable.
-
-#### Scenario: Core action occurs after audio is available
-- **WHEN** a coding, message, incident, choice, booster, or critical-need event occurs after audio has been unlocked
-- **THEN** the matching cue plays without changing the action's mechanics or delaying its result
-
-#### Scenario: Alerts arrive close together
-- **WHEN** multiple eligible sound triggers occur within the configured overlap window
-- **THEN** priority, cooldown, voice-limit, and output-level rules prevent painfully loud or unbounded playback while preserving urgent feedback
-
-#### Scenario: Coding starts and stops
-- **WHEN** coding begins, ends, is cancelled, becomes unavailable, or the scene shuts down
-- **THEN** its continuous or repeated typing feedback follows the coding state and does not remain playing afterward
-
-### Requirement: Browser audio activation is respected
-The game SHALL keep audio silent until a qualifying user interaction permits playback and SHALL recover gracefully when browser audio activation is unavailable or delayed.
-
-#### Scenario: Game loads before user interaction
-- **WHEN** the workstation appears before any qualifying user gesture
-- **THEN** no sound is forced and gameplay remains fully usable
-
-#### Scenario: First qualifying interaction occurs
-- **WHEN** the player first uses a qualifying pointer, touch, or keyboard action and master mute is off
-- **THEN** audio is unlocked for subsequent cues without replaying a backlog of missed sounds
-
-#### Scenario: Audio cannot be unlocked
-- **WHEN** the browser rejects or delays audio activation
-- **THEN** the game continues without an error, blocked control, or repeated activation storm
-
-### Requirement: Master mute is immediate and persistent
-The game SHALL expose a clearly labeled master mute control on player-visible game screens, apply changes immediately to all active and future game audio, and persist the preference locally across reloads and fresh runs.
-
-#### Scenario: Player mutes active audio
-- **WHEN** the player activates master mute while a sound is playing
-- **THEN** active game audio becomes inaudible immediately and subsequent cues remain silent
-
-#### Scenario: Player unmutes
-- **WHEN** the player disables master mute after audio is unlocked
-- **THEN** subsequent eligible cues can play without replaying cues suppressed while muted
-
-#### Scenario: Muted game is reloaded
-- **WHEN** a stored muted preference exists and the game is loaded or restarted
-- **THEN** the mute control and audio output begin in the muted state
-
-#### Scenario: Local preference storage is unavailable
-- **WHEN** reading or writing the mute preference fails
-- **THEN** the current session's mute control remains usable and gameplay continues without an error
-
-### Requirement: Presentation remains readable at supported viewports
-The polished workstation, first-run instruction overlay, decision layer, and results presentation SHALL preserve the fixed logical composition and remain readable and operable at the project's minimum supported touch-sized viewport.
-
-#### Scenario: Minimum supported viewport is used
-- **WHEN** the workstation, first-run guidance, decision layer, or results view is displayed at the minimum supported viewport
-- **THEN** the objective or result, essential status, severity, enabled controls, decision choices, and mute state remain readable, reachable, and non-overlapping
-
-#### Scenario: First-run guidance is shown
-- **WHEN** the instruction overlay appears over the workstation at any supported viewport
-- **THEN** it identifies the objective, Hold to Code control, urgent alerts, and resources without hiding its dismissal control or implying that covered gameplay controls are active
-
-#### Scenario: Visual stress reaches its maximum stage
-- **WHEN** maximum presentation clutter is rendered at the minimum supported viewport
-- **THEN** decorative elements remain behind or outside essential controls and status information
-
-#### Scenario: Viewport changes with an overlay open
-- **WHEN** the viewport is resized or changes orientation while first-run guidance or a decision is open
-- **THEN** the overlay remains fully readable and its actionable controls remain aligned with pointer and touch input

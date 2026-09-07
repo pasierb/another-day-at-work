@@ -36,7 +36,7 @@ export interface PacingProfile {
     readonly overnight:Readonly<{readonly staminaRestoration:number;readonly staminaCap:number;readonly sleepiness:number;readonly toilet:number;readonly healthRiskRecovery:number}>;
     readonly healthRisk:Readonly<{readonly coffee:number;readonly cokeZero:number;readonly warning:number;readonly criticalWarning:number;readonly collapse:number}>;
     readonly presentation:Readonly<{readonly desktopStickyLimit:number;readonly touchStickyLimit:number}>;
-    readonly balance:Readonly<{readonly initialResources:ResourceValues;readonly taskWorkPerGameMinute:number;readonly codingStaminaPerGameMinute:number;readonly bathroomGameMinutes:number;readonly bathroomFocusReduction:number;readonly coffeeStaminaRestoration:number;readonly cokeZeroStaminaRestoration:number;readonly cokeZeroToiletIncrease:number}>;
+    readonly balance:Readonly<{readonly initialResources:ResourceValues;readonly coffeeStaminaRestoration:number;readonly cokeZeroStaminaRestoration:number;readonly cokeZeroToiletIncrease:number}>;
 }
 export interface PacingInterval { readonly band: PacingBand; readonly startGameMs: number; readonly endGameMs: number; readonly durationGameMs: number }
 
@@ -49,7 +49,7 @@ const band = (id:PacingBandId,start:string,end:string,min:number,max:number,weig
     categoryWeightModifiers:Object.freeze({...weights}),escalationPressure,needRateModifiers:Object.freeze({...needs})
 });
 const guardrails:PacingGuardrails=Object.freeze({floodPressure:6,floodDeferralGameMs:5*60_000,maximumQuietGameMs:38*60_000,minimumCategoryWeight:.25,maximumCategoryWeight:3});
-const balance=Object.freeze({initialResources:Object.freeze({stamina:75,poHappiness:75,systemStability:75,technicalDebt:0}),taskWorkPerGameMinute:.34,codingStaminaPerGameMinute:.18,bathroomGameMinutes:10,bathroomFocusReduction:.2,coffeeStaminaRestoration:30,cokeZeroStaminaRestoration:15,cokeZeroToiletIncrease:12});
+const balance=Object.freeze({initialResources:Object.freeze({stamina:75,poHappiness:75,systemStability:75,technicalDebt:0}),coffeeStaminaRestoration:30,cokeZeroStaminaRestoration:15,cokeZeroToiletIncrease:12});
 const normalBands=Object.freeze([
     band('morning','09:00','10:15',16,22,{'product-owner':.7,production:.65,teammate:.8,tooling:.75,personal:.7,consequence:.7},.85,{sleepiness:.7,toilet:.8}),
     band('normal-workload','10:15','12:00',12,18,{},1,{sleepiness:.9,toilet:1}),
@@ -87,7 +87,7 @@ export function validatePacingProfile(profile:PacingProfile):void {
     if(cursor!==WORKDAY_DURATION_MS)throw new RangeError('Pacing bands must cover exactly 09:00–17:00.');
     const g=profile.guardrails;
     if(!Number.isInteger(g.floodPressure)||g.floodPressure<1||![g.floodDeferralGameMs,g.maximumQuietGameMs,g.minimumCategoryWeight,g.maximumCategoryWeight].every(Number.isFinite)||g.floodDeferralGameMs<=0||g.maximumQuietGameMs<=0||g.minimumCategoryWeight<0||g.maximumCategoryWeight<g.minimumCategoryWeight)throw new RangeError('Invalid pacing guardrails.');
-    const b=profile.balance;if(!b||!Object.values(b.initialResources).every(value=>Number.isFinite(value)&&value>=0&&value<=100)||![b.taskWorkPerGameMinute,b.codingStaminaPerGameMinute,b.bathroomGameMinutes,b.bathroomFocusReduction,b.coffeeStaminaRestoration,b.cokeZeroStaminaRestoration,b.cokeZeroToiletIncrease].every(value=>Number.isFinite(value)&&value>=0)||b.taskWorkPerGameMinute<=0||b.coffeeStaminaRestoration<=b.cokeZeroStaminaRestoration)throw new RangeError('Invalid profile-owned balance values.');
+    const b=profile.balance;if(!b||!Object.values(b.initialResources).every(value=>Number.isFinite(value)&&value>=0&&value<=100)||![b.coffeeStaminaRestoration,b.cokeZeroStaminaRestoration,b.cokeZeroToiletIncrease].every(value=>Number.isFinite(value)&&value>=0)||b.coffeeStaminaRestoration<=b.cokeZeroStaminaRestoration)throw new RangeError('Invalid profile-owned balance values.');
     if(!profile.dayScaling||profile.dayScaling.intervalMultiplier<=0||profile.dayScaling.intervalMultiplier>=1||profile.dayScaling.minimumSpawnMultiplier<=0||profile.dayScaling.minimumEscalationMultiplier<=0)throw new RangeError('Invalid multi-day scaling.');
     if(!profile.overnight||profile.overnight.staminaRestoration<0||profile.overnight.staminaCap<=0||profile.overnight.sleepiness<0||profile.overnight.toilet<0||profile.overnight.healthRiskRecovery<0)throw new RangeError('Invalid overnight recovery.');
     if(!profile.healthRisk||!(profile.healthRisk.warning<profile.healthRisk.criticalWarning&&profile.healthRisk.criticalWarning<profile.healthRisk.collapse))throw new RangeError('Invalid health-risk thresholds.');

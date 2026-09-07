@@ -12,6 +12,7 @@ export const PRESENTATION_ASSETS = [
  {key:'presentation.foreground.frame',path:'assets/presentation/foreground-frame.webp',classification:'optional',group:'foreground',maxBytes:512_000},
  {key:'presentation.identities.atlas',path:'assets/presentation/identity-atlas.png',classification:'optional',group:'portrait',maxBytes:358_400},
  {key:'presentation.service.slack',path:'assets/presentation/slack-logo.png',classification:'optional',group:'service',maxBytes:16_384},
+ {key:'presentation.service.github',path:'assets/presentation/github-logo.svg',classification:'optional',group:'service',maxBytes:16_384},
  {key:'presentation.service.claude',path:'assets/presentation/claude-logo.png',classification:'optional',group:'service',maxBytes:16_384},
 ] as const satisfies readonly PresentationAsset[];
 
