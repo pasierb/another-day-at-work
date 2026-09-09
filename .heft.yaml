@@ -1,5 +1,5 @@
 worktrees_dir: .worktrees
-base_branch: master
+base_branch: main
 workspace_prefix: adaw
 tabs:
     - name: codex
