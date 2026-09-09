@@ -1,0 +1,8 @@
+worktrees_dir: .worktrees
+base_branch: master
+workspace_prefix: adaw
+tabs:
+    - name: codex
+      command: codex
+      agent: true
+    - name: shell
