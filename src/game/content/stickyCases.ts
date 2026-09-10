@@ -3,7 +3,7 @@ import {validateInterruptionCatalog,type InterruptionChoiceDefinition,type Inter
 
 const m=(minutes:number)=>minutes*60_000;
 const choice=(id:string,label:string,description:string,gameMinutes:number,effects:readonly Effect[],extra:Partial<InterruptionChoiceDefinition>={}):InterruptionChoiceDefinition=>Object.freeze({id,label,description,gameMinutes,effects:Object.freeze([...effects]),...extra});
-const escalation=(copy:string,effects:readonly Effect[]=[])=>Object.freeze([{delayGameMs:m(35),postponeGameMs:m(12),severity:'high' as const,copy,effects,followUpIds:Object.freeze([])}]);
+const escalation=(copy:string,effects:readonly Effect[]=[])=>Object.freeze([{delayGameMs:m(16),postponeGameMs:m(6),severity:'high' as const,copy,effects,followUpIds:Object.freeze([])}]);
 const casePair=(caseId:string,id:string,title:string,copy:string,category:InterruptionDefinition['category'],effects:readonly Effect[],delay=25):readonly InterruptionDefinition[]=>{
  const followId=`${id}-follow-up`,karma=category==='teammate'?{resultKarma:'constructive' as const}:{};
  return Object.freeze([
@@ -11,7 +11,7 @@ const casePair=(caseId:string,id:string,title:string,copy:string,category:Interr
    choice(`${id}-commit`,'TAKE OWNERSHIP',`Spend 12 min and follow through in ${delay} min.`,12,effects,{...karma,followUps:[{eventId:followId,delayGameMs:m(delay)}]}),
    choice(`${id}-triage`,'SET A BOUNDARY',`Spend 5 min; the case returns with more pressure.`,5,[{type:'resource',resource:'stamina',amount:-4}],{...karma,followUps:[{eventId:followId,delayGameMs:m(delay+15)}]})
   ])}),
-  Object.freeze({id:followId,caseId,category,severity:'high' as const,title:`${title} · FOLLOW-UP`,copy:'The commitment is due. Close it cleanly or let it fail.',baseWeight:0,incidentControl:category==='production'||category==='tooling'?'player-fixable' as const:undefined,choices:Object.freeze([
+  Object.freeze({id:followId,caseId,category,severity:'high' as const,title:`${title} · FOLLOW-UP`,copy:'The commitment is due. Close it cleanly or let it fail.',baseWeight:0,escalationStages:escalation('You missed the commitment. The fallout is landing.',[{type:'resource',resource:category==='production'||category==='tooling'?'systemStability':'poHappiness',amount:-10}]),incidentControl:category==='production'||category==='tooling'?'player-fixable' as const:undefined,choices:Object.freeze([
    choice(`${id}-finish`,'FINISH THE CASE','Spend the time and close the loop.',18,[...effects,{type:'resource',resource:'stamina',amount:-5}],{...karma,caseOutcome:'resolved'}),
    choice(`${id}-fail`,'DROP THE COMMITMENT','Save time now; absorb the fallout.',1,[{type:'resource',resource:'poHappiness',amount:-18},{type:'resource',resource:'technicalDebt',amount:6},...((category==='production'||category==='tooling')?[{type:'resource' as const,resource:'systemStability' as const,amount:-22}]:[])],{...karma,caseOutcome:'failed'})
   ])})

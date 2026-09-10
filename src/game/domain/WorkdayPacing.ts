@@ -51,11 +51,11 @@ const band = (id:PacingBandId,start:string,end:string,min:number,max:number,weig
 const guardrails:PacingGuardrails=Object.freeze({floodPressure:6,floodDeferralGameMs:5*60_000,maximumQuietGameMs:38*60_000,minimumCategoryWeight:.25,maximumCategoryWeight:3});
 const balance=Object.freeze({initialResources:Object.freeze({stamina:75,poHappiness:75,systemStability:75,technicalDebt:0}),coffeeStaminaRestoration:30,cokeZeroStaminaRestoration:15,cokeZeroToiletIncrease:12});
 const normalBands=Object.freeze([
-    band('morning','09:00','10:15',16,22,{'product-owner':.7,production:.65,teammate:.8,tooling:.75,personal:.7,consequence:.7},.85,{sleepiness:.7,toilet:.8}),
-    band('normal-workload','10:15','12:00',12,18,{},1,{sleepiness:.9,toilet:1}),
-    band('lunch','12:00','13:00',15,22,{'product-owner':.7,production:.8,teammate:.75,personal:1.25},.85,{sleepiness:1.15,toilet:1.1}),
-    band('main-chaos','13:00','16:00',7,12,{'product-owner':1.25,production:1.45,teammate:1.2,tooling:1.35,consequence:1.3},1.3,{sleepiness:1.25,toilet:1.2}),
-    band('endgame','16:00','17:00',6,10,{'product-owner':1.35,production:1.2,consequence:1.25},1.15,{sleepiness:1.45,toilet:1.3})
+    band('morning','09:00','10:15',4,6,{'product-owner':.7,production:.65,teammate:.8,tooling:.75,personal:.7,consequence:.7},.85,{sleepiness:.7,toilet:.8}),
+    band('normal-workload','10:15','12:00',3,5,{},1,{sleepiness:.9,toilet:1}),
+    band('lunch','12:00','13:00',4,6,{'product-owner':.7,production:.8,teammate:.75,personal:1.25},.85,{sleepiness:1.15,toilet:1.1}),
+    band('main-chaos','13:00','16:00',2,4,{'product-owner':1.25,production:1.45,teammate:1.2,tooling:1.35,consequence:1.3},1.3,{sleepiness:1.25,toilet:1.2}),
+    band('endgame','16:00','17:00',2,3,{'product-owner':1.35,production:1.2,consequence:1.25},1.15,{sleepiness:1.45,toilet:1.3})
 ]);
 
 const dayScaling=Object.freeze({intervalMultiplier:.85,minimumSpawnMultiplier:.4,minimumEscalationMultiplier:.5});
