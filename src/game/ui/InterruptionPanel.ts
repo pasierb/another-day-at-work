@@ -113,6 +113,11 @@ export class InterruptionPanel {
         }
         const height = y + 6;
         this.root.setSize(width, height);
+        // Catch clicks on the paper so covered choices cannot receive them.
+        const paperHit = scene.add.rectangle(0, 0, width, height, 0xffffff, 0)
+            .setOrigin(0).setInteractive({ useHandCursor: true });
+        paperHit.on(Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.root.emit('pointerdown'));
+        this.root.addAt(paperHit, 1);
         surface.add(roundedSurface(scene, 4, 7, width, height, 0x101526, 0, 12, 0.3, 0));
         if (config.urgent || config.dark) {
             surface.add(roundedSurface(scene, -4, -4, width + 8, height + 8, accentColor, 0, 15, 0.16, 0));
