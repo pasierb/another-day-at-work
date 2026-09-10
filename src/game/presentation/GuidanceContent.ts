@@ -1,8 +1,8 @@
 export const GUIDANCE_COPY = Object.freeze({
     title: 'Your first workday',
     objective: 'There is no winning. Keep the work, your job, production, and yourself alive for as many days as you can.',
-    coding: 'Every action happens on a sticky. Pick one inline response to advance a case, recover, or accept a consequence.',
-    alerts: 'Stickies keep arriving, aging, and escalating while time runs. Follow-ups return after deterministic delays.',
+    coding: 'Choose a sticky response in seconds. Closing cases properly takes time while more cards arrive. Shortcuts buy breathing room at a cost.',
+    alerts: 'Cards overflow onto extra pages. Unanswered work drains your resources; missed commitments escalate. Pick what you can afford to neglect.',
     resources: 'Stamina, PO Happiness, and System Stability are your three visible failure clocks. Habits can hide others.',
     dismiss: 'START TRIAGE'
 });
