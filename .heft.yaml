@@ -3,6 +3,6 @@ base_branch: main
 workspace_prefix: adaw
 tabs:
     - name: codex
-      command: codex
+      command: codex --yolo
       agent: true
     - name: shell
